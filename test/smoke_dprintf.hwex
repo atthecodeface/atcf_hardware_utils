@@ -1,0 +1,33 @@
+#a Copyright
+#  
+#  This file 'smoke_dprintf.hwex' copyright Gavin J Stark 2020
+#  
+#  This program is free software; you can redistribute it and/or modify it under
+#  the terms of the GNU General Public License as published by the Free Software
+#  Foundation, version 2.0.
+#  
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even implied warranty of MERCHANTABILITY
+#  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+#  for more details.
+
+printf "Regression smoke test %s0% test_ctl %d1%" env_string("test_harness")  env_int("test_ctl")
+
+module_force_option_string "tb.th" "clock" clk
+module_force_option_string "tb.th" "inputs" "dprintf_ack dprintf_byte__valid dprintf_byte__last dprintf_byte__data[8]  dprintf_byte__address[16]"
+module_force_option_string "tb.th" "outputs" "test_ctl[4] dprintf_req__valid dprintf_req__address[16] dprintf_req__data_0[64] dprintf_req__data_1[64] dprintf_req__data_2[64] dprintf_req__data_3[64]"
+module_force_option_string "tb.th" "filename" env_string("test_harness")
+module_force_option_string "tb.th" "test_ctl" env_string("test_ctl")
+module tb_dprintf tb
+
+clock system_clock   0 2 2
+clock system_clock_2 0 17 10
+wire reset_n
+assign reset_n 0 10 1
+    
+drive tb.clk        system_clock
+drive tb.clk_async  system_clock_2
+drive tb.reset_n    reset_n
+
+end
+

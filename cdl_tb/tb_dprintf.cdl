@@ -1,0 +1,115 @@
+/** Copyright (C) 2016-2017,  Gavin J Stark.  All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * @file  tb_teletext.cdl
+ * @brief Testbench for teletext decoder module
+ *
+ * This is a simple testbench for the teletext decoder.
+ */
+/*a Includes */
+include "dprintf.h"
+include "dprintf_modules.h"
+
+/*a External modules */
+extern module se_test_harness( clock clk,
+                               output bit[4] test_ctl,
+                               output t_dprintf_req_4   dprintf_req  "Debug printf request",
+                               input bit              dprintf_ack  "Debug printf acknowledge",
+                               input t_dprintf_byte dprintf_byte
+    )
+{
+    timing from rising clock clk dprintf_req, test_ctl;
+    timing to   rising clock clk dprintf_ack, dprintf_byte;
+}
+
+/*a Module */
+module tb_dprintf( clock clk,
+                   clock clk_async,
+                   input bit reset_n
+)
+{
+
+    /*b Nets */
+    default clock clk;
+    default reset active_low reset_n;
+    clocked bit[4] test_ctl_r=0;
+    net bit[4] test_ctl "Test control mux";
+
+    comb t_dprintf_req_4   dprintf_req  "Debug printf request";
+    net t_dprintf_req_4   dprintf_th_req;
+    net t_dprintf_req_4   dprintf_fifo_out_req;
+    net t_dprintf_req_4   dprintf_async0_req;
+    net t_dprintf_req_4   dprintf_async1_req;
+    net bit               dprintf_ack  "Debug printf acknowledge";
+    net bit               dprintf_fifo_ack  "Debug printf acknowledge";
+    net bit               dprintf_async0_ack  "Debug printf acknowledge";
+    net bit               dprintf_async_ack  "Debug printf acknowledge";
+    comb bit              dprintf_th_ack  "Debug printf acknowledge";
+    net t_dprintf_byte dprintf_byte;
+
+    /*b Instantiations */
+    instantiations: {
+        se_test_harness th( clk <- clk,
+                            test_ctl => test_ctl,
+                            dprintf_req => dprintf_th_req,
+                            dprintf_ack <= dprintf_th_ack,
+                            dprintf_byte <= dprintf_byte
+            );
+        
+        dprintf_4_fifo_4 fifo( clk <- clk,
+                          reset_n <= reset_n,
+                          req_in <= dprintf_th_req,
+                          ack_in => dprintf_fifo_ack,
+                          req_out => dprintf_fifo_out_req,
+                          ack_out <= dprintf_ack );
+
+        dprintf_4_async async0( clk_in <- clk,
+                                clk_out <- clk_async,
+                                reset_n <= reset_n,
+                                req_in <= dprintf_th_req,
+                                ack_in => dprintf_async_ack,
+                                req_out => dprintf_async0_req,
+                                ack_out <= dprintf_async0_ack );
+        dprintf_4_async async1( clk_in <- clk_async,
+                                clk_out <- clk,
+                                reset_n <= reset_n,
+                                req_in <= dprintf_async0_req,
+                                ack_in => dprintf_async0_ack,
+                                req_out => dprintf_async1_req,
+                                ack_out <= dprintf_ack );
+
+        test_ctl_r <= test_ctl;
+        dprintf_req = dprintf_th_req;
+        dprintf_th_ack = dprintf_ack;
+        part_switch (test_ctl_r) {
+        case 1: {
+            dprintf_req = dprintf_fifo_out_req;
+            dprintf_th_ack = dprintf_fifo_ack;
+        }
+        case 2: {
+            dprintf_req = dprintf_async1_req;
+            dprintf_th_ack = dprintf_async_ack;
+        }
+        }
+        dprintf dut( clk <- clk,
+                     reset_n <= reset_n,
+                     dprintf_req <= dprintf_req,
+                     dprintf_ack => dprintf_ack,
+                     byte_blocked <= 0,
+                     dprintf_byte =>  dprintf_byte
+            );
+    }
+
+    /*b All done */
+}

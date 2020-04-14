@@ -1,0 +1,115 @@
+int vector_number
+string failure_reason
+string printed_data
+int last_data_received
+
+set last_data_received 0
+set_string printed_data ""
+
+bfm_wait 4
+
+test_ctl.drive env_int("test_ctl")
+
+bfm_wait 4
+
+spawn checker checker 100
+
+
+dprintf_req__valid.drive 1
+dprintf_req__address.drive 0x30
+dprintf_req__data_0.drive 0x85012345
+dprintf_req__data_1.drive 0xc11a85
+
+gosub drive_req
+
+dprintf_req__valid.drive 1
+dprintf_req__address.drive 0x0541
+dprintf_req__data_0.drive 0x85abcdef
+dprintf_req__data_1.drive 0x4700480049004a
+dprintf_req__data_2.drive 0x4b004c004d004e
+dprintf_req__data_3.drive 0x4f
+
+gosub drive_req
+
+dprintf_req__valid.drive 1
+dprintf_req__address.drive 0xff41
+dprintf_req__data_0.drive 0x41ff
+
+gosub drive_req
+
+wait_for_end:
+bfm_wait 100
+beq last_data_received 0 wait_for_end
+
+pass global_cycle() "Test succeeded"
+
+end
+
+drive_req:
+bfm_wait 1
+dr_wait_for_ack:
+beq dprintf_ack.value() 1 drive_req_acked
+
+sprintf failure_reason "acknowledge should get set within 5000 cycles"
+dprintf_ack.wait_for_value 1 5000
+bne dprintf_ack.value() 1 test_fail
+
+drive_req_acked:
+dprintf_req__valid.drive 0
+
+return
+
+
+# checker waits for valid dprintf output
+# our dprintfs are set up so that we see byte==address[8;0]
+# we are expecting to see a 0x41 to address 0xff41 followed by a last
+checker:
+
+int address
+int byte
+int last
+int temp
+
+set byte 0
+set address 0
+
+cloop:
+
+dprintf_byte__valid.wait_for_value 1 50
+bne dprintf_byte__valid.value() 1 test_fail
+
+set last    dprintf_byte__last.value()
+beq last 0 not_last
+beq byte    0x41   checker_completed
+beq address 0xff41 checker_completed
+goto was_last
+
+not_last:
+set address dprintf_byte__address.value()
+set byte    dprintf_byte__data.value()
+and temp address 0xff
+sprintf failure_reason "Mismatch in byte %x0% and address %x1%" byte address
+bne temp byte test_fail
+
+was_last:
+
+# printf "%d3%: print %x0% %x1% %d2%" address byte last global_cycle()
+bfm_wait 1
+
+goto cloop
+
+checker_completed:
+set last_data_received 1
+die
+
+end
+
+
+test_fail:
+printf "Test failed, cycle %d0%, reason %d1%" global_cycle() 0
+sprintf failure_reason "**************************************************************************** Test failed : %s0%" failure_reason
+fail vector_number failure_reason
+end
+
+
+

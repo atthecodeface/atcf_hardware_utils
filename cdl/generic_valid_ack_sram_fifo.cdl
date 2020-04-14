@@ -1,0 +1,335 @@
+/** @copyright (C) 2004-2019,  Gavin J Stark.  All rights reserved.
+ *
+ * @copyright
+ *    Licensed under the Apache License, Version 2.0 (the "License");
+ *    you may not use this file except in compliance with the License.
+ *    You may obtain a copy of the License at
+ *     http://www.apache.org/licenses/LICENSE-2.0.
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ *
+ * @file   generic_valid_ack_sram_fifo.cdl
+ * @brief  A generic valid/ack FIFO using dual-port SRAM
+ *
+ * Based on the Embisi-gip apb_uart_sync_fifo
+ *
+ * CDL implementation of a module that takes an input request with an @a ack
+ * response and buffers them in a FIFO, presenting the same request out
+ *
+ * The FIFO runs at full throughput, but only uses the SRAM when it has to
+ *
+ */
+/*a Constants */
+constant integer fifo_depth=2048; // was size
+constant integer fifo_ptr_size=sizeof(fifo_depth-1); // was log_size
+
+/*a Types */
+/*t t_req_in_dest */
+typedef enum[2] {
+    req_in_dest_hold,
+    req_in_dest_sram,
+    req_in_dest_req_out,
+    req_in_dest_pending,
+} t_req_in_dest;
+
+/*t t_req_out_src */
+typedef enum[3] {
+    req_out_src_hold,
+    req_out_src_sram,
+    req_out_src_req_in,
+    req_out_src_pending,
+    req_out_src_empty
+} t_req_out_src;
+
+/*t t_fifo_state
+ *
+ * State held by the FIFO
+ */
+typedef struct {
+    bit buffer_is_not_empty    "Asserted if buffer is not empty - zero on reset"; // Embisi has empty_flag
+    bit buffer_is_full         "Asserted if buffer is full - zero on reset";
+    bit[fifo_ptr_size] write_ptr              "Index to next location in fifo_data to write to";
+    bit[fifo_ptr_size] read_ptr               "Index to next location in fifo_data to read from";
+    gt_generic_valid_req req_in           "Registered request in";
+    bit sram_reading;
+    gt_generic_valid_req pending_req_out  "Next data to go out after req_out";
+    gt_generic_valid_req req_out          "Data being driven out";
+} t_fifo_state;
+
+/*t t_fifo_combs
+ *
+ * Combinatorial decode for FIFO update
+ *
+ */
+typedef struct {
+
+    t_req_out_src req_out_src            "Source for request out register - hold, pending, empty, sram, req_in";
+    t_req_out_src pending_req_out_src    "Source for pending request out register - hold, empty, sram, req_in";
+    bit can_take_request       "Asserted if a request can be taken - high unless FIFO and buffer out are full";
+    bit pop;
+    bit push;
+    bit sram_can_read;
+    t_req_in_dest req_in_dest;
+
+    bit[fifo_ptr_size] write_ptr_plus_1  "Write pointer post-increment mod FIFO size";
+    bit[fifo_ptr_size] read_ptr_plus_1   "Read pointer post-increment mod FIFO size";
+    bit                pop_empties       "Asserted if a POP empties the FIFO (if a push does not happen)";
+    bit                push_fills        "Asserted if a PUSH fills the FIFO (if a pop does not happen)";
+} t_fifo_combs;
+
+/*m External module */
+extern module generic_valid_ack_dpsram(
+    clock write_clk,
+    clock read_clk,
+    input bit write_enable, input bit[9] write_address, input gt_generic_valid_req write_data,
+    input bit read_enable, input bit[9] read_address, output gt_generic_valid_req read_data
+    )
+{
+    timing to rising clock write_clk   write_enable, write_address, write_data;
+    timing to rising clock read_clk    read_enable, read_address;
+    timing from rising clock read_clk  read_data;
+}
+
+/*a Module
+ */
+module generic_valid_ack_sram_fifo( clock clk                            "Clock for logic",
+                                    input bit reset_n                    "Active low reset",
+                                    input gt_generic_valid_req req_in    "Request from upstream port, which must have a @p valid bit",
+                                    output bit ack_in                    "Acknowledge to upstream port",
+                                    output gt_generic_valid_req req_out   "Request out downstream, which must have a @p valid bit",
+                                    input bit ack_out                     "Acknowledge from downstream"
+    )
+"""
+A deep valid/ack FIFO using a synchronous dual-port SRAM and read/write pointers.
+The module can keep up with a data in per cycle and a data out per cycle.
+
+The SRAM has a read-to-data delay of a cycle, and so two output registers
+must be kept; these are denoted @a req_out and @a pending_req_out.
+
+If both are valid then the SRAM *must not* be reading (not should it
+start a read) as there is nowhere for the data to go.  In this case if
+req_out is being acked, then req_out will come from pending_req_out
+which will become empty. If req_out is not being acked, then both
+registers hold their values. (i.e. hold/hold or pending/empty)
+
+If only one is valid then the SRAM *can* be reading *or* can start a read.
+In particular, if req_out is valid and pending_req_out is not, then:
+  if req_out is acked then it is either from SRAM or empty; else hold/SRAM, or hold/empty
+If req_out is not valid but pending_req_out is, then:
+  req_out comes from pending_req_out; pending_req_out is either empty or SRAM
+
+If neither is valid then an SRAM read can certainly start.
+
+There is a single data register on input to capture the @a req_in.
+This *must* be transfered if valid to the SRAM or one of the output registers,
+unless the SRAM buffer is full.
+
+This permits an @a ack_in unless the @a req_in is valid and the SRAM buffer is full.
+"""
+{
+    /*b State etc  */
+    default reset active_low reset_n;
+    default clock clk;
+
+    clocked t_fifo_state fifo_state={*=0}        "Arbiter state - which port was last consumed";
+    comb t_fifo_combs fifo_combs                 "Combinatorial decode of acks and requests";
+    net gt_generic_valid_req sram_read_req;
+
+    /*b Control logic for input/output registers */
+    control_logic """
+    Determine whether and where input data will go to
+
+    Manage the output register.
+    """: {
+        /*b Determine if an incoming request can be taken */
+        fifo_combs.can_take_request = 1;
+        if (fifo_state.req_in.valid && fifo_state.buffer_is_full) {
+            fifo_combs.can_take_request = 0;
+        }
+
+        /*b Determine outgoing requests handling */
+        fifo_combs.req_out_src         = req_out_src_hold;
+        fifo_combs.pending_req_out_src = req_out_src_hold;
+        fifo_combs.req_in_dest         = req_in_dest_sram;
+        fifo_combs.sram_can_read       = 0;
+        // Note we do not want SRAM req_in_dest or sram_can_read to depend on ack_out
+        if (fifo_state.req_out.valid && fifo_state.pending_req_out.valid) {
+            // Both req_out and pending_req_out valid - cannot read, shuffle if ack_out
+            fifo_combs.req_in_dest         = req_in_dest_sram;
+            fifo_combs.sram_can_read       = 0;
+            if (ack_out) {
+                fifo_combs.req_out_src         = req_out_src_pending;
+                fifo_combs.pending_req_out_src = req_out_src_empty;
+            } else {
+                fifo_combs.req_out_src         = req_out_src_hold;
+                fifo_combs.pending_req_out_src = req_out_src_hold;
+            }
+        } elsif (fifo_state.req_out.valid) { // pending is not valid - SRAM may be reading
+            fifo_combs.req_in_dest             = req_in_dest_sram;
+            fifo_combs.sram_can_read           = !fifo_state.sram_reading;
+            fifo_combs.pending_req_out_src     = req_out_src_hold;
+            if (ack_out) { // request out being taken, either becomes empty or SRAM data
+                fifo_combs.req_out_src         = req_out_src_empty;
+                if (fifo_state.sram_reading) {
+                    fifo_combs.req_out_src     = req_out_src_sram;
+                }
+            } else { // request out must be held - pending must take SRAM
+                fifo_combs.req_out_src         = req_out_src_hold;
+                if (fifo_state.sram_reading) {
+                    fifo_combs.pending_req_out_src = req_out_src_sram;
+                }
+            }
+        } elsif (fifo_state.pending_req_out.valid) {
+            // request out NOT valid, pending IS valid
+            // SRAM reading so shuffle down
+            // request in must go to SRAM as there may be more data there
+            fifo_combs.req_in_dest             = req_in_dest_pending;
+            fifo_combs.sram_can_read           = !fifo_state.sram_reading;
+            fifo_combs.req_out_src             = req_out_src_pending;
+            fifo_combs.pending_req_out_src     = req_out_src_empty;
+            if (fifo_state.buffer_is_not_empty) {
+                fifo_combs.req_in_dest         = req_in_dest_sram;
+            }
+            if (fifo_state.sram_reading) {
+                fifo_combs.pending_req_out_src = req_out_src_sram;
+                fifo_combs.req_in_dest         = req_in_dest_sram;
+            }
+        } elsif (fifo_state.sram_reading) {
+            // request out NOT valid, pending NOT valid
+            // SRAM reading so put in request out
+            // request in must go to SRAM as there may be more data there
+            fifo_combs.req_in_dest         = req_in_dest_sram;
+            fifo_combs.sram_can_read       = 1;
+            fifo_combs.req_out_src         = req_out_src_sram;
+            fifo_combs.pending_req_out_src = req_out_src_empty;
+        } elsif (fifo_state.buffer_is_not_empty) {
+            // request out NOT valid, pending NOT valid, SRAM not reading
+            // SRAM has data
+            fifo_combs.req_in_dest         = req_in_dest_sram;
+            fifo_combs.sram_can_read       = 1;
+            fifo_combs.req_out_src         = req_out_src_hold;
+            fifo_combs.pending_req_out_src = req_out_src_hold;
+        } elsif (fifo_state.req_in.valid) {
+            // request out NOT valid, pending NOT valid, SRAM not reading
+            // SRAM has no data
+            // request in valid
+            fifo_combs.req_in_dest         = req_in_dest_req_out;
+            fifo_combs.sram_can_read       = 0; // well it cannot as there is no data there :-)
+            fifo_combs.req_out_src         = req_out_src_req_in;
+            fifo_combs.pending_req_out_src = req_out_src_hold;
+        } else {
+            // Nobody has data
+            fifo_combs.req_in_dest         = req_in_dest_hold;
+            fifo_combs.sram_can_read       = 0; // well it cannot as there is no data there :-)
+            fifo_combs.req_out_src         = req_out_src_hold;
+            fifo_combs.pending_req_out_src = req_out_src_hold;
+        }
+        
+        /*b Handle req_out, pending_req_out */
+        full_switch (fifo_combs.req_out_src) {
+        case req_out_src_hold:    { fifo_state.req_out <= fifo_state.req_out; }
+        case req_out_src_empty:   { fifo_state.req_out.valid <= 0; }
+        case req_out_src_pending: { fifo_state.req_out <= fifo_state.pending_req_out; }
+        case req_out_src_sram:    { fifo_state.req_out <= sram_read_req; fifo_state.req_out.valid <= 1; }
+        case req_out_src_req_in:  { fifo_state.req_out <= fifo_state.req_in; }
+        }
+        full_switch (fifo_combs.pending_req_out_src) {
+        case req_out_src_hold:    { fifo_state.pending_req_out <= fifo_state.pending_req_out; }
+        case req_out_src_empty:   { fifo_state.pending_req_out.valid <= 0; }
+        case req_out_src_sram:    { fifo_state.pending_req_out <= sram_read_req; fifo_state.pending_req_out.valid <= 1; }
+        case req_out_src_req_in:  { fifo_state.pending_req_out <= fifo_state.req_in; }
+        }
+        if (fifo_combs.can_take_request) { // fifo_state.req_in is not valid or SRAM is not full
+            fifo_state.req_in.valid <= 0;
+            if (req_in.valid) {
+                fifo_state.req_in <= req_in;
+            }
+        }
+
+        /*b Handle ack in and req out */
+        ack_in = fifo_combs.can_take_request;
+        req_out = fifo_state.req_out;
+        
+        /*b All done */
+    }
+
+    /*b Fifo logic */
+    fifo_logic """
+    Write if fifo_state.req_in.valid and SRAM not full
+    Read if sram_can_read is 1 (SRAM is not empty and there is somewhere to put the data later)
+    """: {
+        /*b Determine FIFO pushing */
+        fifo_combs.push = fifo_state.req_in.valid && !fifo_state.buffer_is_full;
+        if (fifo_combs.req_in_dest != req_in_dest_sram) {
+            fifo_combs.push = 0;
+        }
+        
+        /*b Determine FIFO popping */
+        fifo_combs.pop = fifo_combs.sram_can_read;
+        if (!fifo_state.buffer_is_not_empty) {
+            fifo_combs.pop = 0;
+        }
+        fifo_state.sram_reading <= fifo_combs.pop;
+        
+        /*b Get +1 for FIFO pointers */
+        fifo_combs.write_ptr_plus_1 = fifo_state.write_ptr+1;
+        if (fifo_state.write_ptr == fifo_depth-1) {
+            fifo_combs.write_ptr_plus_1 = 0;
+        }
+        fifo_combs.read_ptr_plus_1 = fifo_state.read_ptr+1;
+        if (fifo_state.read_ptr == fifo_depth-1) {
+            fifo_combs.read_ptr_plus_1 = 0;
+        }
+
+        /*b Get 'would be full' indicators */
+        fifo_combs.pop_empties = 0;
+        if (fifo_combs.read_ptr_plus_1 == fifo_state.write_ptr) {
+            fifo_combs.pop_empties = 1;
+        }
+        fifo_combs.push_fills = 0;
+        if (fifo_combs.write_ptr_plus_1 == fifo_state.read_ptr) {
+            fifo_combs.push_fills = 1;
+        }
+        
+        /*b Handle push of FIFO */
+        if (fifo_combs.pop) {
+            fifo_state.read_ptr            <= fifo_combs.read_ptr_plus_1;
+            fifo_state.buffer_is_not_empty <= !fifo_combs.pop_empties;
+            fifo_state.buffer_is_full      <= 0;
+        }
+        if (fifo_combs.push) {
+            fifo_state.write_ptr            <= fifo_combs.write_ptr_plus_1;
+            fifo_state.buffer_is_full       <= fifo_combs.push_fills;
+            fifo_state.buffer_is_not_empty  <= 1;
+            if (fifo_combs.pop) {
+                fifo_state.buffer_is_full <= 0;
+            }
+        }
+
+        /*b Simple dual-port SRAM (single write, single read port) */
+        generic_valid_ack_dpsram fifo_sram( write_clk      <- clk,
+                                            read_clk       <- clk,
+                                            write_enable   <= fifo_combs.push,
+                                            write_address  <= fifo_state.write_ptr,
+                                            write_data     <= fifo_state.req_in,
+                                            read_enable    <= fifo_combs.pop,
+                                            read_address   <= fifo_state.read_ptr,
+                                            read_data      => sram_read_req );
+        /*b Assertions */
+        assert {
+            if (fifo_state.write_ptr==fifo_state.read_ptr) {
+                assert( (fifo_state.buffer_is_full || (!fifo_state.buffer_is_not_empty)), "FIFO must be full or empty if pointers are equal");
+            } else {
+                assert( ((!fifo_state.buffer_is_full) && fifo_state.buffer_is_not_empty), "FIFO must be neither full nor empty if pointers are different");
+            }
+            assert( ((!fifo_state.buffer_is_full) || fifo_state.buffer_is_not_empty), "FIFO cannot be both be full and empty");
+        }
+        
+        /*b All done */
+    }
+
+    /*b All done */
+}
