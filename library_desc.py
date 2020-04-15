@@ -1,12 +1,18 @@
 import cdl_desc
 from cdl_desc import CdlModule, CModel
 
+class Library(cdl_desc.Library):
+    name="utils"
+    pass
+
 class DprintfModules(cdl_desc.Modules):
     name = "dprintf"
     c_src_dir   = "cmodel"
     src_dir     = "cdl"
     tb_src_dir  = "cdl_tb"
     include_dir = "cdl"
+    libraries = {"std":True}
+    export_dirs = [ src_dir, include_dir ]
     modules = []
     modules += [ CdlModule("async_reduce2_4_28_l",constants={"input_width":4,"output_width":28, "shift_right":0, "double_sr":1}, cdl_filename="generic_async_reduce", cdl_module_name="generic_async_reduce") ]
     modules += [ CdlModule("async_reduce2_4_28_r",constants={"input_width":4,"output_width":28, "shift_right":1, "double_sr":1}, cdl_filename="generic_async_reduce", cdl_module_name="generic_async_reduce") ]
@@ -33,5 +39,3 @@ class DprintfModules(cdl_desc.Modules):
     modules += [ CdlModule("tb_hysteresis_switch", src_dir=tb_src_dir) ]
 
     pass
-
-modules=cdl_desc.Modules.__subclasses__
