@@ -15,5 +15,5 @@ clean:
 	mkdir -p ${BUILD_ROOT}
 
 smoke: sim
-	(cd test && PATH=${ATCF_HARDWARE_UTILS}/python:${PATH} ${MAKE} SIM=${SIM} smoke)
+	(cd test && PATH=${SRC_ROOT}/python:${PATH} ${MAKE} SIM=${SIM} smoke)
 
