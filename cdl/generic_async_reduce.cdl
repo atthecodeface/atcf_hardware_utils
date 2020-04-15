@@ -16,7 +16,7 @@
  *
  */
 /*a Includes */
-include "sync_modules.h"
+include "std::tech_sync.h"
 
 /*a Constants */
 constant integer input_width  = 4;

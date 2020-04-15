@@ -24,8 +24,6 @@ class DprintfModules(cdl_desc.Modules):
     modules += [ CdlModule("dprintf") ]
     modules += [ CdlModule("hysteresis_switch") ]
     modules += [ CdlModule("clock_divider") ]
-    modules += [ CdlModule("tech_sync_flop") ]
-    modules += [ CdlModule("tech_sync_bit") ]
 
     modules += [ CdlModule("dprintf_2_mux",      force_includes=["dprintf.h"], types={"gt_generic_valid_req":"t_dprintf_req_2"}, cdl_filename="generic_valid_ack_mux", cdl_module_name="generic_valid_ack_mux") ]
     modules += [ CdlModule("dprintf_4_mux",      force_includes=["dprintf.h"], types={"gt_generic_valid_req":"t_dprintf_req_4"}, cdl_filename="generic_valid_ack_mux", cdl_module_name="generic_valid_ack_mux") ]
