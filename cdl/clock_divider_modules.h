@@ -1,4 +1,4 @@
-include "types/clock_divider.h"
+include "clock_divider.h"
 extern module clock_divider( clock clk                    "Clock for the module",
                       input bit reset_n            "Active low reset",
                       input t_clock_divider_control divider_control "Controls for any clock divider",
