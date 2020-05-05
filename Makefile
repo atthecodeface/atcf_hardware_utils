@@ -11,5 +11,5 @@ all: sim
 $(eval $(call cdl_makefile_template,${SRC_ROOT},${BUILD_ROOT},${OTHER_SRCS}))
 
 smoke: ${SIM}
-	(cd ${SRC_ROOT}/test && PATH=${SRC_ROOT}/python:${PATH} ${MAKE} SIM=${SIM} smoke)
+	${Q}(cd ${SRC_ROOT}/test && PATH=${SRC_ROOT}/python:${PATH} ${MAKE} ${MAKEFLAGS} SIM=${SIM} smoke)
 
