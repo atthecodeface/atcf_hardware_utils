@@ -10,16 +10,16 @@ class DprintfModules(cdl_desc.Modules):
     c_src_dir   = "cmodel"
     src_dir     = "cdl"
     tb_src_dir  = "cdl_tb"
-    include_dir = "cdl"
     libraries = {"std":True}
-    export_dirs = [ src_dir, include_dir ]
+    cdl_include_dirs = ["cdl"]
+    export_dirs      = cdl_include_dirs + [ src_dir ]
     modules = []
-    modules += [ CdlModule("async_reduce2_4_28_l",constants={"input_width":4,"output_width":28, "shift_right":0, "double_sr":1}, cdl_filename="generic_async_reduce", cdl_module_name="generic_async_reduce") ]
-    modules += [ CdlModule("async_reduce2_4_28_r",constants={"input_width":4,"output_width":28, "shift_right":1, "double_sr":1}, cdl_filename="generic_async_reduce", cdl_module_name="generic_async_reduce") ]
-    modules += [ CdlModule("async_reduce_4_28_l", constants={"input_width":4,"output_width":28, "shift_right":0, "double_sr":0}, cdl_filename="generic_async_reduce", cdl_module_name="generic_async_reduce") ]
-    modules += [ CdlModule("async_reduce_4_28_r", constants={"input_width":4,"output_width":28, "shift_right":1, "double_sr":0}, cdl_filename="generic_async_reduce", cdl_module_name="generic_async_reduce") ]
-    modules += [ CdlModule("async_reduce_4_60_l", constants={"input_width":4,"output_width":60, "shift_right":0, "double_sr":0}, cdl_filename="generic_async_reduce", cdl_module_name="generic_async_reduce") ]
-    modules += [ CdlModule("async_reduce_4_60_r", constants={"input_width":4,"output_width":60, "shift_right":1, "double_sr":0}, cdl_filename="generic_async_reduce", cdl_module_name="generic_async_reduce") ]
+    modules += [ CdlModule("async_reduce2_4_28_l",constants={"input_width":4,"output_width":28, "shift_right":0, "double_sr":1}, cdl_filename="generic_async_reduce") ]
+    modules += [ CdlModule("async_reduce2_4_28_r",constants={"input_width":4,"output_width":28, "shift_right":1, "double_sr":1}, cdl_filename="generic_async_reduce") ]
+    modules += [ CdlModule("async_reduce_4_28_l", constants={"input_width":4,"output_width":28, "shift_right":0, "double_sr":0}, cdl_filename="generic_async_reduce") ]
+    modules += [ CdlModule("async_reduce_4_28_r", constants={"input_width":4,"output_width":28, "shift_right":1, "double_sr":0}, cdl_filename="generic_async_reduce") ]
+    modules += [ CdlModule("async_reduce_4_60_l", constants={"input_width":4,"output_width":60, "shift_right":0, "double_sr":0}, cdl_filename="generic_async_reduce") ]
+    modules += [ CdlModule("async_reduce_4_60_r", constants={"input_width":4,"output_width":60, "shift_right":1, "double_sr":0}, cdl_filename="generic_async_reduce") ]
 
     modules += [ CdlModule("dprintf") ]
     modules += [ CdlModule("hysteresis_switch") ]
