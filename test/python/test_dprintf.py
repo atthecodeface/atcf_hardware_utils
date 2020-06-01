@@ -1,15 +1,19 @@
 #a Copyright
 #  
-#  This file 'bfm.py' copyright Gavin J Stark 2017-2020
+#  This file 'test_dprintf.py' copyright Gavin J Stark 2017-2020
 #  
-#  This program is free software; you can redistribute it and/or modify it under
-#  the terms of the GNU General Public License as published by the Free Software
-#  Foundation, version 2.0.
-#  
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even implied warranty of MERCHANTABILITY
-#  or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
-#  for more details.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 
 #a Imports
 from queue import Queue
@@ -117,7 +121,7 @@ class DprintfTest_Base(ThExecFile):
             self.bfm_wait(1)
             pass
         self.compare_expected("Completed checking",completed,True)
-        self.verbose.error("%d"%self.global_cycle())
+        # self.verbose.error("%d"%self.global_cycle())
         pass
     #f run__finalize
     def run__finalize(self) -> None:
@@ -203,6 +207,7 @@ class TestDprintf(TestCase):
               "1_a": (DprintfTest_1, 1*1000,   {"th_args":{"test_ctl":0}}),
               "1_b": (DprintfTest_1, 1*1000,   {"th_args":{"test_ctl":1}}),
               "1_c": (DprintfTest_1, 1*2000,   {"th_args":{"test_ctl":2}}),
+              "smoke": (DprintfTest_1, 1*2000,   {"th_args":{"test_ctl":2}}),
               "hex_0": (DprintfTest_Hex, 1*3000,   {"th_args":{"test_ctl":0}}),
               "hex_1": (DprintfTest_Hex, 1*3000,   {"th_args":{"test_ctl":1}}),
               "hex_2": (DprintfTest_Hex, 1*3000,   {"th_args":{"test_ctl":2}}),
