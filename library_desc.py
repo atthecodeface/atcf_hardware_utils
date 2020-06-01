@@ -25,12 +25,25 @@ class DprintfModules(cdl_desc.Modules):
     modules += [ CdlModule("hysteresis_switch") ]
     modules += [ CdlModule("clock_divider") ]
 
-    modules += [ CdlModule("dprintf_2_mux",      force_includes=["dprintf.h"], types={"gt_generic_valid_req":"t_dprintf_req_2"}, cdl_filename="generic_valid_ack_mux", cdl_module_name="generic_valid_ack_mux") ]
-    modules += [ CdlModule("dprintf_4_mux",      force_includes=["dprintf.h"], types={"gt_generic_valid_req":"t_dprintf_req_4"}, cdl_filename="generic_valid_ack_mux", cdl_module_name="generic_valid_ack_mux") ]
-    modules += [ CdlModule("dprintf_2_fifo_4",   force_includes=["dprintf.h"], types={"gt_generic_valid_req":"t_dprintf_req_2"}, constants={"fifo_depth":3}, cdl_filename="generic_valid_ack_fifo", cdl_module_name="generic_valid_ack_fifo") ]
-    modules += [ CdlModule("dprintf_4_fifo_4",   force_includes=["dprintf.h"], types={"gt_generic_valid_req":"t_dprintf_req_4"}, constants={"fifo_depth":3}, cdl_filename="generic_valid_ack_fifo", cdl_module_name="generic_valid_ack_fifo") ]
-    modules += [ CdlModule("dprintf_4_async",    force_includes=["dprintf.h"], types={"gt_generic_valid_req":"t_dprintf_req_4"}, cdl_filename="generic_valid_ack_async_slow", cdl_module_name="generic_valid_ack_async_slow") ]
-    modules += [ CdlModule("dprintf_4_fifo_512", force_includes=["dprintf.h"], types={"gt_generic_valid_req":"t_dprintf_req_4"}, constants={"fifo_depth":512}, instance_types={"generic_valid_ack_dpsram":"dprintf_4_dp_sram_512"}, cdl_filename="generic_valid_ack_sram_fifo", cdl_module_name="generic_valid_ack_sram_fifo") ]
+    modules += [ CdlModule("fifo_status_1023", constants={"fifo_depth_max":1023}, cdl_filename="fifo_status") ]
+    modules += [ CdlModule("fifo_status_7",   constants={"fifo_depth_max":7},  cdl_filename="fifo_status") ]
+
+    modules += [ CdlModule("dprintf_2_mux",      force_includes=["dprintf.h"], types={"gt_generic_valid_req":"t_dprintf_req_2"}, cdl_filename="generic_valid_ack_mux") ]
+    modules += [ CdlModule("dprintf_4_mux",      force_includes=["dprintf.h"], types={"gt_generic_valid_req":"t_dprintf_req_4"}, cdl_filename="generic_valid_ack_mux") ]
+    modules += [ CdlModule("dprintf_2_fifo_4",   force_includes=["dprintf.h"],
+                           types={"gt_generic_valid_req":"t_dprintf_req_2"},
+                           instance_types={"fifo_status":"fifo_status_7"}, constants={"fifo_depth":3},
+                           cdl_filename="generic_valid_ack_fifo") ]
+    modules += [ CdlModule("dprintf_4_fifo_4",   force_includes=["dprintf.h"], # FIfo module has depth 4 as it has an output register and the FIFO internally of depth 3
+                           types={"gt_generic_valid_req":"t_dprintf_req_4"},
+                           instance_types={"fifo_status":"fifo_status_7"}, constants={"fifo_depth":3},
+                           cdl_filename="generic_valid_ack_fifo") ]
+    modules += [ CdlModule("dprintf_4_async",    force_includes=["dprintf.h"], types={"gt_generic_valid_req":"t_dprintf_req_4"}, cdl_filename="generic_valid_ack_async_slow") ]
+    modules += [ CdlModule("dprintf_4_dp_sram_512") ]
+    modules += [ CdlModule("dprintf_4_fifo_512", force_includes=["dprintf.h"], types={"gt_generic_valid_req":"t_dprintf_req_4"},
+                           constants={"fifo_depth":512},
+                           instance_types={"fifo_status":"fifo_status_1023", "generic_valid_ack_dpsram":"dprintf_4_dp_sram_512"},
+                           cdl_filename="generic_valid_ack_sram_fifo") ]
 
     modules += [ CdlModule("tb_dprintf", src_dir=tb_src_dir) ]
     modules += [ CdlModule("tb_dprintf_mux", src_dir=tb_src_dir) ]

@@ -22,6 +22,10 @@
 constant integer fifo_depth=16;
 constant integer fifo_ptr_size=sizeof(fifo_depth-1);
 
+/*a Includes */
+include "fifo_status.h"
+include "fifo_status_modules.h"
+
 /*a Types */
 /*t t_fifo_state
  *
@@ -59,8 +63,9 @@ module generic_valid_ack_fifo( clock clk                            "Clock for l
                                input bit reset_n                    "Active low reset",
                                input gt_generic_valid_req req_in    "Request from upstream port, which must have a @p valid bit",
                                output bit ack_in                    "Acknowledge to upstream port",
-                               output gt_generic_valid_req req_out   "Request out downstream, which must have a @p valid bit",
-                               input bit ack_out                     "Acknowledge from downstream"
+                               output gt_generic_valid_req req_out  "Request out downstream, which must have a @p valid bit",
+                               input bit ack_out                    "Acknowledge from downstream",
+                               output t_fifo_status fifo_status     "Fifo status, that need not be used"
     )
 """
 Very simple generic register FIFO for a valid/ack system
@@ -79,6 +84,7 @@ If not empty and output register will be empty move register[read_ptr] to output
     clocked t_fifo_state fifo_state={*=0}        "Arbiter state - which port was last consumed";
     comb t_fifo_combs fifo_combs                 "Combinatorial decode of acks and requests";
     clocked gt_generic_valid_req[fifo_depth] fifo_data={{*=0,valid=1}}   "Fifo data";
+    net t_fifo_status fifo_status;
 
     /*b Control logic */
     control_logic """
@@ -176,6 +182,10 @@ If not empty and output register will be empty move register[read_ptr] to output
         }
         
         /*b All done */
+    }
+    /*b Fifo status, logging and assertions */
+    fifo_status_etc : {
+        fifo_status status_i( clk<-clk, reset_n<=reset_n, push<=req_in.valid&&ack_in, pop<=req_out.valid&&ack_out, max_entries<=fifo_depth+1, fifo_status=>fifo_status);
     }
 
     /*b All done */

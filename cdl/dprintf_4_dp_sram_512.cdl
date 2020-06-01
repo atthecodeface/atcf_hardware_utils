@@ -20,8 +20,8 @@
  *
  */
 /*a Includes */
-include "srams.h"
-include "types/dprintf.h"
+include "std::srams.h"
+include "dprintf.h"
 
 /*a Module
  */
