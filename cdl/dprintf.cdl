@@ -462,6 +462,7 @@ A code of 255 terminates the string.
                     last=0};
         }
         case op_last_data: {
+            dprintf_byte.valid <= 1;
             dprintf_byte.last <= 1;
         }
         default: {
@@ -475,6 +476,15 @@ A code of 255 terminates the string.
 
         /*b All done */
     }
-
+    
+    /*b Logging */
+    logging : {
+        if (format_combs.action!=action_none) {
+            log("dprintf_action",
+                "fsm",format_state.fsm_state,
+                "bytes_left",format_state.bytes_left,
+                "action", format_combs.action);
+        }
+    }
     /*b All done */
 }

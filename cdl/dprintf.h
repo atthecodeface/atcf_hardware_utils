@@ -46,6 +46,10 @@ typedef struct {
 /*t t_dprintf_byte
  *
  * Validated byte with address; the output of the dprintf module
+ *
+ * If valid is asserted, then either (address,data) is valid or last is asserted
+ *
+ * i.e. If valid and last are asserted then the data is not valid
  */
 typedef struct {
     bit valid;

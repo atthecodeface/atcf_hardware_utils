@@ -1,7 +1,18 @@
 Q=@
+CDL_REGRESS = ${CDL_ROOT}/libexec/cdl/cdl_regress.py
 
+SMOKE_OPTIONS = --waves="dut" --only-tests 'Apb.*_1'
+SMOKE_OPTIONS = --only-tests 'decp'
+SMOKE_TESTS   = test_dprintf
+REGRESS_TESTS = test_dprintf
+CDL_REGRESS_PACKAGE_DIRS = --package-dir regress:${SRC_ROOT}/python  --package-dir regress:${GRIP_ROOT_PATH}/atcf_hardware_apb/python
+
+	# ${Q}${SIM} smoke.csm
+
+.PHONY:smoke
 smoke:
-	${Q}${SIM} smoke.csm
+	${CDL_REGRESS} --pyengine-dir=${BUILD_ROOT} ${CDL_REGRESS_PACKAGE_DIRS} --suite-dir=python ${SMOKE_OPTIONS} ${SMOKE_TESTS}
 
-smoke_mifs: smoke_rom.py
-	${Q}PYTHONPATH=.:${PYTHONPATH} apb_processor_rom.py --src smoke_rom --mif smoke_rom.mif
+.PHONY:regress
+regress:
+	${CDL_REGRESS} --pyengine-dir=${BUILD_ROOT} ${CDL_REGRESS_PACKAGE_DIRS} --suite-dir=python ${REGRESS_TESTS}
