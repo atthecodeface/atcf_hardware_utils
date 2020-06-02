@@ -1,0 +1,77 @@
+/** @copyright (C) 2020,  Gavin J Stark.  All rights reserved.
+ *
+ * @copyright
+ *    Licensed under the Apache License, Version 2.0 (the "License");
+ *    you may not use this file except in compliance with the License.
+ *    You may obtain a copy of the License at
+ *     http://www.apache.org/licenses/LICENSE-2.0.
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ *
+ * @file   sram_access_mux_2.cdl
+ * @brief  A 2-input multiplexer for the sram_access bus
+ *
+ */
+include "sram_access.h"
+
+/*a Module
+ */
+module sram_access_mux_2( clock clk                            "Clock for logic",
+                          input bit reset_n                    "Active low reset",
+                          input  t_sram_access_req   req_a,
+                          output t_sram_access_resp  resp_a,
+                          input  t_sram_access_req   req_b,
+                          output t_sram_access_resp  resp_b,
+
+                          output t_sram_access_req   req       "id may be ignored if this goes straight to SRAM",
+                          input  t_sram_access_resp  resp      "only data needs to be valid if this is straight to SRAM"
+    )
+{
+    /*b State etc  */
+    default reset active_low reset_n;
+    default clock clk;
+    clocked bit               access_in_progress_for_a = 0;
+    clocked t_sram_access_req access_in_progress = {*=0};
+
+    /*b Status logic */
+    status_logic """
+    """: {
+        resp_a = {*=0};
+        resp_b = {*=0};
+
+        req = req_b;
+        if (req_a.valid) {
+            req = req_a;
+            resp_a.ack = 1;
+        } else {
+            resp_b.ack = 1;
+        }
+        if (!resp.ack) {
+            resp_a.ack = 0;
+            resp_b.ack = 0;
+        }
+
+        // Assume straight to SRAM
+        resp_a.id   = access_in_progress.id;
+        resp_b.id   = access_in_progress.id;
+        resp_a.data = resp.data;
+        resp_b.data = resp.data;
+        if (access_in_progress.valid) {
+            resp_a.valid =  access_in_progress_for_a;
+            resp_b.valid = !access_in_progress_for_a;
+        }
+
+        access_in_progress.valid <= 0;
+        if (req.valid && resp.ack) {
+            access_in_progress_for_a <= resp_a.ack;
+            access_in_progress <= req;
+        }
+        
+        /*b All done */
+    }
+
+    /*b All done */
+}

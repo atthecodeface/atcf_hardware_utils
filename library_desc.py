@@ -24,6 +24,7 @@ class DprintfModules(cdl_desc.Modules):
     modules += [ CdlModule("dprintf") ]
     modules += [ CdlModule("hysteresis_switch") ]
     modules += [ CdlModule("clock_divider") ]
+    modules += [ CdlModule("sram_access_mux_2") ]
 
     modules += [ CdlModule("fifo_status_1023", constants={"fifo_depth_max":1023}, cdl_filename="fifo_status") ]
     modules += [ CdlModule("fifo_status_7",   constants={"fifo_depth_max":7},  cdl_filename="fifo_status") ]

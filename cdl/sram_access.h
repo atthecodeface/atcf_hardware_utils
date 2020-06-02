@@ -36,3 +36,22 @@ typedef struct {
     bit[64] data;
 } t_sram_access_resp;
 
+/*a Modules
+ */
+extern module sram_access_mux_2( clock clk                            "Clock for logic",
+                          input bit reset_n                    "Active low reset",
+                          input  t_sram_access_req   req_a,
+                          output t_sram_access_resp  resp_a,
+                          input  t_sram_access_req   req_b,
+                          output t_sram_access_resp  resp_b,
+
+                          output t_sram_access_req   req       "id may be ignored if this goes straight to SRAM",
+                          input  t_sram_access_resp  resp      "only data needs to be valid if this is straight to SRAM"
+    )
+{
+    timing to    rising clock clk  req_a, req_b, resp;
+    timing from  rising clock clk  resp_a, resp_b, req;
+
+    timing comb input  req_a, req_b, resp;
+    timing comb output resp_a, resp_b, req;
+}
