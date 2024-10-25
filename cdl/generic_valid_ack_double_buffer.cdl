@@ -1,0 +1,111 @@
+/** @copyright (C) 2016-2017,  Gavin J Stark.  All rights reserved.
+ *
+ * @copyright
+ *    Licensed under the Apache License, Version 2.0 (the "License");
+ *    you may not use this file except in compliance with the License.
+ *    You may obtain a copy of the License at
+ *     http://www.apache.org/licenses/LICENSE-2.0.
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ *
+ * @file   generic_valid_ack_double_buffer.cdl
+ * @brief  A generic valid/ack double buffer
+ *
+ * CDL implementation of a double buffer, effectively a 2-entry FIFO, for
+ * types, which have a valid and an @ack response signal
+ */
+
+/*a Includes */
+include "fifo_status.h"
+include "fifo_status_modules.h"
+
+/*a Module */
+module generic_valid_ack_double_buffer( clock clk         "System clock",
+                           input bit reset_n "Active low reset",
+
+                           input gt_generic_valid_req  req_in,
+                           output bit       ack_in,
+                           input bit        ack_out,
+                           output gt_generic_valid_req req_out,
+                           output t_fifo_status fifo_status     "Fifo status, that need not be used"
+    )
+"""
+A double-register buffer, effectively a 2-entry FIFO
+
+This has slightly simplified logic compared to an N-entry register FIFO with N=2
+"""
+{
+    /*b Clock and reset */
+    default clock clk;
+    default reset active_low reset_n;
+
+    comb bit push "Asserted to push into the buffer; must be deasserted if !can_push";
+    comb bit pop "Asserted to pop the push_data; must only be asserted if push_data is valid";
+
+    clocked gt_generic_valid_req data0 = {*=0};
+    clocked gt_generic_valid_req data1 = {*=0};
+    clocked bit to_be_pushed = 0;
+    clocked bit to_be_popped = 0;
+
+    net t_fifo_status fifo_status;
+
+    /*b Decode the state */
+    decode """
+        Decode the state, all early in the cycle
+    """ : {
+        ack_in = !data0.valid;
+        if (to_be_pushed) {
+            ack_in = !data1.valid;
+        }
+
+        req_out = data0;
+        if (to_be_popped) {
+            req_out = data1;
+        }
+
+        pop = req_out.valid && ack_out;
+        push = req_in.valid && ack_in;
+
+
+    }
+
+    output_buffer_events """
+        Handle the pushing and popping of the output buffer
+    """ : {
+        if (pop) {
+            if (to_be_popped) {
+                data1.valid <= 0;
+            } else {
+                data0.valid <= 0;
+            }
+            to_be_popped <= !to_be_popped;
+        }
+
+        if (push) {
+            if (to_be_pushed) {
+                data1 <= req_in;
+            } else {
+                data0 <= req_in;
+            }
+            to_be_pushed <= !to_be_pushed;
+        }
+    }
+
+    /*b Fifo status, logging and assertions */
+    fifo_status_etc : {
+        fifo_status status_i( clk<-clk, reset_n<=reset_n, push<=push, pop<=pop, max_entries<=2, fifo_status=>fifo_status);
+    }
+
+    /*b Done
+     */
+}
+
+/*a Editor preferences and notes
+mode: c ***
+c-basic-offset: 4 ***
+c-default-style: (quote ((c-mode . "k&r") (c++-mode . "k&r"))) ***
+outline-regexp: "/\\\*a\\\|[\t ]*\/\\\*[b-z][\t ]" ***
+*/

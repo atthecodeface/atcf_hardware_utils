@@ -1,0 +1,149 @@
+/** @copyright (C) 2016-2017,  Gavin J Stark.  All rights reserved.
+ *
+ * @copyright
+ *    Licensed under the Apache License, Version 2.0 (the "License");
+ *    you may not use this file except in compliance with the License.
+ *    You may obtain a copy of the License at
+ *     http://www.apache.org/licenses/LICENSE-2.0.
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ *
+ * @file   axi4s_process.cdl
+ * @brief  AXI pipeline with a process function invoked on the first N AXI4s words
+ *
+ * CDL implementation of an arbitrary AXI4S header processor
+ *
+ */
+/*a Includes
+ */
+include "fifo_status.h"
+include "fifo_status_modules.h"
+
+/*a Constants */
+constant integer fifo_depth=8;
+
+/*a Module */
+module generic_valid_ack_insertion_buffer( clock clk         "System clock",
+                                           input bit reset_n "Active low reset",
+
+                                           input gt_generic_valid_req  req_in,
+                                           output bit       ack_in,
+                                           input bit        ack_out,
+                                           output gt_generic_valid_req req_out,
+
+                                           output gt_generic_valid_req data0,
+                                           output gt_generic_valid_req data1,
+                                           output gt_generic_valid_req data2,
+                                           output gt_generic_valid_req data3,
+                                           output gt_generic_valid_req data4,
+                                           output gt_generic_valid_req data5,
+                                           output gt_generic_valid_req data6,
+                                           output gt_generic_valid_req data7,
+                                           
+                                           output t_fifo_status fifo_status     "Fifo status, that need not be used"
+    )
+"""
+Generic insertion buffer, with 8 outputs of the current buffer contents (including valids)
+
+If the fifo depth is fewer than 8 then the remaining outputs are 0    
+"""
+{
+    /*b Clock and reset */
+    default clock clk;
+    default reset active_low reset_n;
+
+    clocked gt_generic_valid_req[8] buffer = {*=0} "Buffer including valid bits; input to the lowest available slot, output at 0";
+
+    comb    bit[fifo_depth]  valid "Valid bits of the buffers, guaranteed to be set from the bottom bit upwards";
+    comb    bit[fifo_depth]  valid_after_pop "Valid bits of the buffers after a pop, if it is occurring";
+    comb    bit[fifo_depth]  fall_thru "Asserted from bit 0, entries that should take their next; top bit guaranteed clear";
+    comb    bit[fifo_depth]  would_insert "At-most-one-hot bit set of where to insert incoming data; not overlapping with fall_thru";
+
+    comb bit pop;
+    comb bit push;
+    
+    comb bit is_empty;
+    comb bit is_full;
+    
+    net t_fifo_status fifo_status;
+
+    /*b Inputs and outputs */
+    inputs_and_outputs """
+    """ : {
+        ack_in = !is_full;
+        req_out = buffer[0];
+        
+        push = req_in.valid && !is_full;
+        pop = ack_out && !is_empty;
+
+        data0 = buffer[0];
+        data1 = buffer[1];
+        data2 = buffer[2];
+        data3 = buffer[3];
+        data4 = buffer[4];
+        data5 = buffer[5];
+        data6 = buffer[6];
+        data7 = buffer[7];
+    }
+
+    /*b Insertion buffer */
+    insertion_buffer """
+    """ : {
+        is_empty = !buffer[0].valid;
+        is_full = buffer[fifo_depth-1].valid;
+
+        valid = 0;
+        for (i; fifo_depth) {
+            valid[i] = buffer[i].valid;
+        }
+
+        valid_after_pop = valid;
+        if (pop) {
+            valid_after_pop = valid >> 1;
+        }
+
+        would_insert = (~valid_after_pop) & (valid_after_pop<<1);
+        would_insert[0] = !valid_after_pop[0];
+
+        fall_thru = 0;
+        if (pop) {
+            fall_thru = valid_after_pop;;
+        }
+
+        for (i; fifo_depth) {
+            if ( fall_thru[i]) {
+                if (i < fifo_depth-1) { // always true, removes C compiler warning
+                    buffer[i] <= buffer[i+1];
+                }
+            } elsif (would_insert[i]) {
+                buffer[i].valid <= 0;
+                if (push) {
+                    buffer[i] <= req_in;
+                }
+            }
+        }
+        for (i; 8) {
+            if (i > fifo_depth) {
+                buffer[i] <= {*=0};
+            }
+        }
+    }
+
+    /*b Fifo status, logging and assertions */
+    fifo_status_etc : {
+        fifo_status status_i( clk<-clk, reset_n<=reset_n, push<=push, pop<=pop, max_entries<=fifo_depth, fifo_status=>fifo_status);
+    }
+
+    /*b Done
+     */
+}
+
+/*a Editor preferences and notes
+mode: c ***
+c-basic-offset: 4 ***
+c-default-style: (quote ((c-mode . "k&r") (c++-mode . "k&r"))) ***
+outline-regexp: "/\\\*a\\\|[\t ]*\/\\\*[b-z][\t ]" ***
+*/
