@@ -26,4 +26,5 @@ typedef struct {
     bit     overflowed;
     bit     underflowed;
     bit[32] entries_full;
+    bit[32] spaces_available;
 } t_fifo_status;

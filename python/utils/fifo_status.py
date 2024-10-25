@@ -6,4 +6,5 @@ t_fifo_status  = {
     "overflowed":1,
     "underflowed":1,
     "entries_full":32,
+    "spaces_available":32,
     }
