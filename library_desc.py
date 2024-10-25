@@ -31,7 +31,8 @@ class DprintfModules(cdl_desc.Modules):
 
     modules += [ CdlModule("dprintf_2_mux",      force_includes=["dprintf.h"], types={"gt_generic_valid_req":"t_dprintf_req_2"}, cdl_filename="generic_valid_ack_mux") ]
     modules += [ CdlModule("dprintf_4_mux",      force_includes=["dprintf.h"], types={"gt_generic_valid_req":"t_dprintf_req_4"}, cdl_filename="generic_valid_ack_mux") ]
-    modules += [ CdlModule("dprintf_2_fifo_4",   force_includes=["dprintf.h"],
+    modules += [ CdlModule("dprintf_2_double_buffer",
+                           force_includes=["dprintf.h"],
                            types={"gt_generic_valid_req":"t_dprintf_req_2"},
                            instance_types={"fifo_status":"fifo_status_7"}, constants={"fifo_depth":3},
                            cdl_filename="generic_valid_ack_fifo") ]
@@ -45,6 +46,12 @@ class DprintfModules(cdl_desc.Modules):
                            constants={"fifo_depth":512},
                            instance_types={"fifo_status":"fifo_status_1023", "generic_valid_ack_dpsram":"dprintf_4_dp_sram_512"},
                            cdl_filename="generic_valid_ack_sram_fifo") ]
+
+    # Just to test build the insertion buffer
+    modules += [ CdlModule("dprintf_4_insertion_buffer_6", force_includes=["dprintf.h"], types={"gt_generic_valid_req":"t_dprintf_req_4"},
+                           constants={"fifo_depth":6},
+                           instance_types={"fifo_status":"fifo_status_7"},
+                           cdl_filename="generic_valid_ack_insertion_buffer") ]
 
     modules += [ CdlModule("tb_dprintf", src_dir=tb_src_dir) ]
     modules += [ CdlModule("tb_dprintf_mux", src_dir=tb_src_dir) ]
