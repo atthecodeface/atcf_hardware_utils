@@ -20,7 +20,8 @@
  */
 /*a Constants */
 constant integer fifo_depth=16;
-constant integer fifo_ptr_size=sizeof(fifo_depth-1);
+constant integer num_fifo_regs = fifo_depth-1;
+constant integer fifo_ptr_size = sizeof(num_fifo_regs);
 
 /*a Includes */
 include "fifo_status.h"
@@ -83,7 +84,7 @@ If not empty and output register will be empty move register[read_ptr] to output
     clocked gt_generic_valid_req req_out={*=0}   "Request out downstream";
     clocked t_fifo_state fifo_state={*=0}        "Arbiter state - which port was last consumed";
     comb t_fifo_combs fifo_combs                 "Combinatorial decode of acks and requests";
-    clocked gt_generic_valid_req[fifo_depth] fifo_data={{*=0,valid=1}}   "Fifo data";
+    clocked gt_generic_valid_req[num_fifo_regs] fifo_data={{*=0,valid=1}}   "Fifo data";
     net t_fifo_status fifo_status;
 
     /*b Control logic */
@@ -136,11 +137,11 @@ If not empty and output register will be empty move register[read_ptr] to output
     """: {
         /*b Get +1 for FIFO pointers */
         fifo_combs.write_ptr_plus_1 = fifo_state.write_ptr+1;
-        if (fifo_state.write_ptr == fifo_depth-1) {
+        if (fifo_state.write_ptr == num_fifo_regs-1) {
             fifo_combs.write_ptr_plus_1 = 0;
         }
         fifo_combs.read_ptr_plus_1 = fifo_state.read_ptr+1;
-        if (fifo_state.read_ptr == fifo_depth-1) {
+        if (fifo_state.read_ptr == num_fifo_regs-1) {
             fifo_combs.read_ptr_plus_1 = 0;
         }
 
@@ -183,9 +184,16 @@ If not empty and output register will be empty move register[read_ptr] to output
         
         /*b All done */
     }
+
     /*b Fifo status, logging and assertions */
     fifo_status_etc : {
-        fifo_status status_i( clk<-clk, reset_n<=reset_n, push<=req_in.valid&&ack_in, pop<=req_out.valid&&ack_out, max_entries<=fifo_depth+1, fifo_status=>fifo_status);
+        fifo_status status_i( clk <- clk,
+                              reset_n <= reset_n,
+                              push <= req_in.valid && ack_in,
+                              pop <= req_out.valid && ack_out,
+                              max_entries <= fifo_depth,
+                              fifo_status => fifo_status
+            );
     }
 
     /*b All done */
