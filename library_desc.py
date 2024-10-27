@@ -21,6 +21,13 @@ class DprintfModules(cdl_desc.Modules):
     modules += [ CdlModule("async_reduce_4_60_l", constants={"input_width":4,"output_width":60, "shift_right":0, "double_sr":0}, cdl_filename="generic_async_reduce") ]
     modules += [ CdlModule("async_reduce_4_60_r", constants={"input_width":4,"output_width":60, "shift_right":1, "double_sr":0}, cdl_filename="generic_async_reduce") ]
 
+    for (fifo_depth,bpa) in [(12,4), (16,4), (24,8)]:
+        modules += [ CdlModule("byte_fifo_multiaccess_%d_%d"%(fifo_depth, bpa),
+                               constants={"fifo_depth":fifo_depth,
+                                          "max_bytes_per_access":bpa},
+                               cdl_filename="byte_fifo_multiaccess")
+                    ]
+
     modules += [ CdlModule("dprintf") ]
     modules += [ CdlModule("hysteresis_switch") ]
     modules += [ CdlModule("clock_divider") ]

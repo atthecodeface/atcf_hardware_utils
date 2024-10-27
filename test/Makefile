@@ -2,8 +2,8 @@ Q=@
 CDL_REGRESS = ${CDL_ROOT}/libexec/cdl/cdl_regress.py
 
 SMOKE_OPTIONS = --only-tests 'smoke'
-SMOKE_TESTS   = test_dprintf test_clock_divider test_fifo
-REGRESS_TESTS = test_dprintf test_clock_divider test_fifo
+SMOKE_TESTS   = test_dprintf test_clock_divider test_fifo test_byte_fifo_multiaccess
+REGRESS_TESTS = test_dprintf test_clock_divider test_fifo test_byte_fifo_multiaccess
 CDL_REGRESS_PACKAGE_DIRS = --package-dir regress:${SRC_ROOT}/python  --package-dir regress:${GRIP_ROOT_PATH}/atcf_hardware_apb/python
 
 	# ${Q}${SIM} smoke.csm
