@@ -132,6 +132,53 @@ class DprintfTest_0(DprintfTest_Base):
         ]
     pass
 
+#c DprintfTest_1
+class DprintfTest_1(DprintfTest_Base):
+    data_and_scripts_to_run = [
+       ([ Dprintf(0x0, b"abcdefg1andmore"),
+          Dprintf(0x0, b"abcdefg2andmore"),
+          Dprintf(0x0, b"abcde3g3andmore"),
+          Dprintf(0x0, b"abcde4g4andmore"),
+          Dprintf(0x0, b"abc5efg5andmore"),
+          Dprintf(0x0, b"abc6efg6andmore"),
+          Dprintf(0x0, b"a7cdefg7andmore"),
+          Dprintf(0x0, b"a8cdefg8andmore"),
+          Dprintf(0x0, b"abcdefg9andmore"),
+          Dprintf(0x0, b"abcdefg0andmore"),
+         ],
+        DbgMasterFifoScript(["status"]),
+        "ok",
+        [FifoStatus(515,10).as_dbg_master_fifo_status(),
+         ]
+        ),
+       ([],
+        DbgMasterFifoScript([("read",8,1),
+                             ("read",16,1),
+                             ("read",24,1),
+                             ("read",32,1),
+                             "status"]),
+        "ok",
+        [0x31, 0x6732, 0x336733, 0x65346734,
+         FifoStatus(515,6).as_dbg_master_fifo_status(),
+         ]
+        ),
+       ([],
+        DbgMasterFifoScript([("read",40,1),
+                             ("read",48,1),
+                             ("read",56,1),
+                             ("read",64,1),
+                             "status"]),
+        "ok",
+        [0x65666735, 0x35,
+         0x65666736, 0x6336,
+         0x65666737, 0x376364,
+         0x65666738, 0x61386364,
+         FifoStatus(515,2).as_dbg_master_fifo_status(),
+         ]
+        ),
+        ]
+    pass
+
 #a Hardware and test instantiation
 #c DbgDprintfHardware
 class DbgDprintfHardware(HardwareThDut):
@@ -152,7 +199,8 @@ class DbgDprintfHardware(HardwareThDut):
 #c TestDbgDprintf
 class TestDbgDprintf(TestCase):
     hw = DbgDprintfHardware
-    _tests = {"0_a": (DprintfTest_0, 1*1000, {}),
-              "smoke": (DprintfTest_0, 1*1000, {}),
+    _tests = {"0": (DprintfTest_0, 1*1000, {}),
+              "1": (DprintfTest_1, 1*1000, {}),
+              "smoke": (DprintfTest_1, 1*1000, {}),
     }
 
