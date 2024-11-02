@@ -20,6 +20,7 @@
  */
 
 /*a Includes */
+include "fifo_status.h"
 include "dprintf.h"
 
 /*a Modules */
@@ -80,7 +81,8 @@ module dprintf_2_fifo_4( clock clk,
                          input t_dprintf_req_2 req_in,
                          output bit ack_in,
                          output t_dprintf_req_2 req_out,
-                         input bit ack_out
+                         input bit ack_out,
+                         output t_fifo_status fifo_status
     )
 {
     timing to    rising clock clk req_in;
@@ -88,6 +90,8 @@ module dprintf_2_fifo_4( clock clk,
 
     timing from  rising clock clk req_out;
     timing to    rising clock clk ack_out;
+
+    timing from  rising clock clk fifo_status;
 }
 
 /*m dprintf_4_fifo_4 */
@@ -97,7 +101,8 @@ module dprintf_4_fifo_4( clock clk,
                          input t_dprintf_req_4 req_in,
                          output bit ack_in,
                          output t_dprintf_req_4 req_out,
-                         input bit ack_out
+                         input bit ack_out,
+                         output t_fifo_status fifo_status
     )
 {
     timing to    rising clock clk req_in;
@@ -105,6 +110,8 @@ module dprintf_4_fifo_4( clock clk,
 
     timing from  rising clock clk req_out;
     timing to    rising clock clk ack_out;
+
+    timing from  rising clock clk fifo_status;
 }
 
 /*m dprintf_4_fifo_512 */
@@ -114,7 +121,8 @@ module dprintf_4_fifo_512( clock clk,
                          input t_dprintf_req_4 req_in,
                          output bit ack_in,
                          output t_dprintf_req_4 req_out,
-                         input bit ack_out
+                         input bit ack_out,
+                         output t_fifo_status fifo_status
     )
 {
     timing to    rising clock clk req_in;
@@ -122,6 +130,8 @@ module dprintf_4_fifo_512( clock clk,
 
     timing from  rising clock clk req_out;
     timing to    rising clock clk ack_out;
+
+    timing from  rising clock clk fifo_status;
 }
 
 /*m dprintf_4_async */
