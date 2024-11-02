@@ -18,8 +18,8 @@
 #a Imports
 from queue import Queue
 from random import Random
-from regress.utils.dprintf      import t_dprintf_req_2, t_dprintf_req_4
-from regress.utils.fifo_status  import t_fifo_status
+from regress.utils  import t_dprintf_req_2, t_dprintf_req_4
+from regress.utils  import t_fifo_status
 from cdl.sim     import ThExecFile
 from cdl.sim     import HardwareThDut
 from cdl.sim     import TestCase
