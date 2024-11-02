@@ -75,6 +75,7 @@ class DprintfModules(cdl_desc.Modules):
                                            },
                            cdl_filename="generic_valid_ack_sram_fifo") ]
 
+    modules += [ CdlModule("dbg_master_fifo_sink") ]
     # Just to test build the insertion buffer
     modules += [ CdlModule("dprintf_4_insertion_buffer_6", force_includes=["dprintf.h"], types={"gt_generic_valid_req":"t_dprintf_req_4"},
                            constants={"fifo_depth":6},
@@ -84,5 +85,6 @@ class DprintfModules(cdl_desc.Modules):
     modules += [ CdlModule("tb_dprintf", src_dir=tb_src_dir) ]
     modules += [ CdlModule("tb_dprintf_mux", src_dir=tb_src_dir) ]
     modules += [ CdlModule("tb_hysteresis_switch", src_dir=tb_src_dir) ]
+    modules += [ CdlModule("tb_dbg_dprintf_fifo", src_dir=tb_src_dir) ]
 
     pass

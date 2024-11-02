@@ -1,0 +1,71 @@
+/** Copyright (C) 2016-2017,  Gavin J Stark.  All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * @file  tb_teletext.cdl
+ * @brief Testbench for teletext decoder module
+ *
+ * This is a simple testbench for the teletext decoder.
+ */
+/*a Includes */
+include "debug.h"
+include "dprintf.h"
+include "fifo_status.h"
+include "debug_modules.h"
+include "dprintf_modules.h"
+
+/*a Module */
+module tb_dbg_dprintf_fifo( clock clk,
+                            input bit reset_n,
+                            input t_dprintf_req_4   dprintf_req  "Debug printf request",
+                            output bit              dprintf_ack  "Debug printf acknowledge",
+                            input t_dbg_master_request dbg_master_req,
+                            output t_dbg_master_response dbg_master_resp
+)
+{
+
+    /*b Nets */
+    default clock clk;
+    default reset active_low reset_n;
+    net t_dbg_master_response dbg_master_resp;
+    net bit               dprintf_ack  "Debug printf acknowledge";
+
+    net t_dprintf_req_4   dprintf_fifo_out_req;
+    net bit               dbg_pop_fifo;
+    net t_fifo_status     dprintf_fifo_status;
+
+    /*b Instantiations */
+    instantiations: {
+        dprintf_4_fifo_512 fifo( clk <- clk,
+                                 reset_n <= reset_n,
+                                 req_in <= dprintf_req,
+                                 ack_in => dprintf_ack,
+                                 req_out => dprintf_fifo_out_req,
+                                 ack_out <= dbg_pop_fifo,
+                                 fifo_status => dprintf_fifo_status );
+
+        dbg_master_fifo_sink dut( clk <- clk,
+                                 reset_n <= reset_n,
+                                  dbg_master_req <= dbg_master_req,
+                                  dbg_master_resp => dbg_master_resp,
+                                  fifo_status <= dprintf_fifo_status,
+                                  data0 <= dprintf_fifo_out_req.data_0,
+                                  data1 <= dprintf_fifo_out_req.data_1,
+                                  data2 <= dprintf_fifo_out_req.data_2,
+                                  data3 <= dprintf_fifo_out_req.data_3,
+                                  pop_fifo => dbg_pop_fifo
+            );
+    }
+
+    /*b All done */
+}
