@@ -12,6 +12,15 @@
 The state machine will error if data_last and the number of data valid
 does not provide a complete operation; hence it can be aborted if
 data_last and 0 data are valid.
+
+    Start a script (go @a busy) when a start or start_clear op comes in.
+    Start the script state machine (with optional clear).
+
+    Then register data if provided, with a 'last' indication; provide this to
+    the script state machine.
+    Drive out the number of bytes consumed by the state machine, when used, and
+    in the next tycle provide no data to the script state machine.
+
  */
 typedef enum[3] {
     dbg_op_idle,
@@ -30,14 +39,34 @@ typedef enum[3] {
     dbg_resp_errored
 } t_dbg_master_resp_type;
 
-/*t t_dbg_master_request */
+/*t t_dbg_master_request
+
+Note that num_data_valid is reduced in the next cycle by the response's *bytes_consumed*.
+
+Once the op is data_last, num_data_valid of 0 indicates full consumption of the data and the debug master should complete.
+
+If the debug master sees data_last and a non-zero num_data_valid and
+it cannot interpret the data for an operation then it must complete
+with a response type of error; it need not consume the bytes.
+
+Once a debug master has indicated it has completed the request wil be
+idle until the next start; during this time the num_data_valid *may*
+be nonzero as a data FIFO is consumed with a dbg_op of idle; 
+  
+ */
 typedef struct {
     t_dbg_master_op op;
-    bit[4] num_data_valid "Number of bytes valid, 0 to 6, in data; ignored if not an op data";
-    bit[64] data;
+    bit[4] num_data_valid "Number of bytes valid, 0 to 6, in data; ignored if op is neither data or data_last";
+    bit[64] data "Data bytes, valid from bit 0 upwards";
 } t_dbg_master_request;
 
 /*t t_dbg_master_response
+
+This must be a wire-or structure, so driven to 0 when a debugger has
+not been started.
+
+bytes_valid must be 0 if the resp_type is idle
+
   The protocol is:
 
   idle +
