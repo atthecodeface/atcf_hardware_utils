@@ -1,5 +1,6 @@
 /*a Includes */
 include "debug.h"
+include "sram_access.h"
 
 /*a Modules */
 /*m dbg_master_mux */
@@ -43,4 +44,20 @@ module dbg_master_fifo_sink( clock clk,
     timing from rising clock clk dbg_master_resp;
     timing to   rising clock clk fifo_status, data0, data1, data2, data3;
     timing from rising clock clk pop_fifo;
+}
+
+/*m dbg_master_sram_access */
+extern
+module dbg_master_sram_access( clock clk,
+                               input bit reset_n    "Active low reset",
+                               input t_dbg_master_request    dbg_master_req  "Request from the client to execute from an address in the ROM",
+                               output t_dbg_master_response  dbg_master_resp "Response to the client acknowledging a request",
+                               output t_sram_access_req sram_access_req,
+                               input t_sram_access_resp sram_access_resp
+    )
+{
+    timing to   rising clock clk dbg_master_req;
+    timing from rising clock clk dbg_master_resp;
+    timing to   rising clock clk sram_access_resp;
+    timing from rising clock clk sram_access_req;
 }

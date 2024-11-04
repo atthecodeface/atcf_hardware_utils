@@ -77,6 +77,7 @@ class DprintfModules(cdl_desc.Modules):
 
     modules += [ CdlModule("dbg_master_mux") ]
     modules += [ CdlModule("dbg_master_fifo_sink") ]
+    modules += [ CdlModule("dbg_master_sram_access") ]
     # Just to test build the insertion buffer
     modules += [ CdlModule("dprintf_4_insertion_buffer_6", force_includes=["dprintf.h"], types={"gt_generic_valid_req":"t_dprintf_req_4"},
                            constants={"fifo_depth":6},
