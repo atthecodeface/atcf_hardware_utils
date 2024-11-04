@@ -74,6 +74,24 @@ class DbgMasterFifoScript:
             pass
         return r
     pass
+#a DbgMasterSramScript
+class DbgMasterSramScript:
+    def __init__(self, ops):
+        self.ops = ops
+        pass
+    def as_bytes(self) -> bytes:
+        r = bytearray()
+        for op in self.ops:
+            if op[0] == "read":
+                r.append(64 + (op[1]//8-1))
+                r.append((op[2]) &0xff)
+                r.append(((op[2])>>8) &0xff)
+                r.append((op[3]-1) &0xff)
+                r.append(((op[3]-1)>>8) &0xff)
+                pass
+            pass
+        return r
+    pass
 #a DbgMaster
 class DbgMaster:
     def __init__(self, obj, req_name:str, resp_name:str):
@@ -90,6 +108,10 @@ class DbgMaster:
         bytes_to_run = bytearray(bytes_to_run)
         if (self.resp_type.value() != t_dbg_master_resp_type["dbg_resp_idle"]):
             return ("Not idle", [])
+        if self.resp_data.value() != 0:
+            return("Data not zero when idle",[])
+        if self.resp_bytes_valid.value() != 0:
+            return("bytes valid not zero when idle",[])
 
         self.req_num_data_valid.drive(0)
         self.req_op.drive(t_dbg_master_op["dbg_op_start_clear"] )

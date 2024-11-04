@@ -20,6 +20,7 @@
 /*a Includes */
 include "debug.h"
 include "dprintf.h"
+include "std::srams.h"
 include "fifo_status.h"
 include "debug_modules.h"
 include "dprintf_modules.h"
@@ -30,7 +31,9 @@ module tb_dbg_dprintf_fifo( clock clk,
                             input t_dprintf_req_4   dprintf_req  "Debug printf request",
                             output bit              dprintf_ack  "Debug printf acknowledge",
                             input t_dbg_master_request dbg_master_req,
-                            output t_dbg_master_response dbg_master_resp
+                            output t_dbg_master_response dbg_master_resp,
+                            input t_sram_access_req sram_access_req,
+                            output t_sram_access_resp sram_access_resp
 )
 {
 
@@ -39,6 +42,12 @@ module tb_dbg_dprintf_fifo( clock clk,
     default reset active_low reset_n;
     net t_dbg_master_response dbg_master_resp;
     net bit               dprintf_ack  "Debug printf acknowledge";
+    net t_sram_access_resp sram_access_resp;
+
+    clocked t_dprintf_req_4   dprintf_req_sram = {*=0};
+    net bit dprintf_ack_sram;
+    net t_dprintf_req_4   dprintf_req_mux;
+    net bit dprintf_ack_mux;
 
     net t_dprintf_req_4   dprintf_fifo_out_req;
     net bit               dbg_pop_fifo;
@@ -47,15 +56,35 @@ module tb_dbg_dprintf_fifo( clock clk,
     net t_dbg_master_request  dbg_master_req_fifo;
     net t_dbg_master_response dbg_master_resp_fifo;
 
+    net t_dbg_master_request  dbg_master_req_sram;
+    net t_dbg_master_response dbg_master_resp_sram;
+    net t_sram_access_req sram_access_req_dbg;
+    net t_sram_access_resp sram_access_resp_dbg;
+
+    net t_sram_access_req sram_req;
+    comb t_sram_access_resp sram_resp;
+    net bit[32] sram_data_out;
+    clocked bit sram_did_read = 0;
+
     comb t_dbg_master_response resp_none;
 
     /*b Instantiations */
     instantiations: {
         resp_none = {*=0};
+
+        dprintf_4_mux dpf_mux( clk <- clk,
+                       reset_n <= reset_n,
+                       req_a <= dprintf_req,
+                       ack_a => dprintf_ack,
+                       req_b <= dprintf_req_sram,
+                       ack_b => dprintf_ack_sram,
+                       req => dprintf_req_mux,
+                       ack <= dprintf_ack_mux
+            );
         dprintf_4_fifo_512 fifo( clk <- clk,
                                  reset_n <= reset_n,
-                                 req_in <= dprintf_req,
-                                 ack_in => dprintf_ack,
+                                 req_in <= dprintf_req_mux,
+                                 ack_in => dprintf_ack_mux,
                                  req_out => dprintf_fifo_out_req,
                                  ack_out <= dbg_pop_fifo,
                                  fifo_status => dprintf_fifo_status );
@@ -65,11 +94,13 @@ module tb_dbg_dprintf_fifo( clock clk,
                                  dbg_master_req <= dbg_master_req,
                                  dbg_master_resp => dbg_master_resp,
                                  req1 => dbg_master_req_fifo,
-                                 resp1 <= dbg_master_resp_fifo,
+                                 req2 => dbg_master_req_sram,
                                  resp0 <= resp_none,
-                                 resp2 <= resp_none,
+                                 resp1 <= dbg_master_resp_fifo,
+                                 resp2 <= dbg_master_resp_sram,
                                  resp3 <= resp_none
             );
+
         dbg_master_fifo_sink dut( clk <- clk,
                                  reset_n <= reset_n,
                                   dbg_master_req <= dbg_master_req_fifo,
@@ -81,6 +112,58 @@ module tb_dbg_dprintf_fifo( clock clk,
                                   data3 <= dprintf_fifo_out_req.data_3,
                                   pop_fifo => dbg_pop_fifo
             );
+
+        dbg_master_sram_access dbg_sram( clk <- clk,
+                                         reset_n <= reset_n,
+                                         dbg_master_req <= dbg_master_req_sram,
+                                         dbg_master_resp => dbg_master_resp_sram,
+                                         sram_access_req => sram_access_req_dbg,
+                                         sram_access_resp <= sram_access_resp_dbg
+            );
+
+        sram_access_mux_2 sram_mux( clk<-clk, reset_n<=reset_n,
+                                    req_a  <= sram_access_req_dbg,
+                                    resp_a => sram_access_resp_dbg,
+
+                                    req_b  <= sram_access_req,
+                                    resp_b => sram_access_resp,
+
+                                    req => sram_req,
+                                    resp <= sram_resp );
+
+        se_sram_srw_65536x32 sram( sram_clock <- clk,
+                                   select <= sram_req.valid,
+                                   address <= sram_req.address[16;0],
+                                   read_not_write <= sram_req.read_not_write,
+                                   write_enable <= !sram_req.read_not_write,
+                                   write_data <= sram_req.write_data[32;0],
+                                   data_out => sram_data_out );
+        sram_resp = {*=0};
+        sram_resp.ack = 1; // dedicated to sram access ports
+        sram_resp.data[32;0]  = sram_data_out;
+        sram_resp.valid = sram_did_read;
+        sram_did_read <= sram_req.valid && sram_req.read_not_write;
+        dprintf_req_sram <= {*=0};
+        if (dprintf_req_sram.valid && dprintf_ack_sram) {
+            dprintf_req_sram.valid <= 0;
+        }
+        if (sram_req.valid) {
+            dprintf_req_sram.valid <= 1;
+            dprintf_req_sram.address <= 0;
+            if (sram_req.read_not_write) {
+                dprintf_req_sram.data_0 <= 0x52643a2083;
+                dprintf_req_sram.data_1[16;0] <= sram_req.address[16;0];
+                dprintf_req_sram.data_2 <= -1;
+                dprintf_req_sram.data_3 <= -1;
+            } else {
+                dprintf_req_sram.data_0 <= 0x57723a2083;
+                dprintf_req_sram.data_1[16;48] <= sram_req.address[16;0];
+                dprintf_req_sram.data_1[32;0] <= 0x203d2087;
+                dprintf_req_sram.data_2[32;32] <= sram_req.write_data[32;0];
+                dprintf_req_sram.data_3 <= -1;
+            }
+        }
+
     }
 
     /*b All done */
