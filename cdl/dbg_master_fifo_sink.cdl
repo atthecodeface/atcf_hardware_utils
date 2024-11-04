@@ -413,12 +413,18 @@ Debug script is opcode of (2,6) [24]:
             fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_wait_for_op;
         }
         case fifo_ctrl_action_complete_okay: {
+            fifo_ctrl_data.bytes_valid <= 0;
+            fifo_ctrl_data.data <= 0;
             fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_idle;
         }
         case fifo_ctrl_action_complete_poll_failed: {
+            fifo_ctrl_data.bytes_valid <= 0;
+            fifo_ctrl_data.data <= 0;
             fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_idle;
         }
         case fifo_ctrl_action_complete_errored: {
+            fifo_ctrl_data.bytes_valid <= 0;
+            fifo_ctrl_data.data <= 0;
             fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_idle;
         }
         case fifo_ctrl_action_none: {
