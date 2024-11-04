@@ -1,0 +1,477 @@
+/** @copyright (C) 2024,  Gavin J Stark.  All rights reserved.
+ *
+ * @copyright
+ *    Licensed under the Apache License, Version 2.0 (the "License");
+ *    you may not use this file except in compliance with the License.
+ *    You may obtain a copy of the License at
+ *     http://www.apache.org/licenses/LICENSE-2.0.
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ *
+ * @file   dbg_master_fifo_sink.cdl
+ * @brief  Simple 'debug master' that sinks data out of a FIFO
+ *
+ * CDL implementation of a debug 'master' that sinks data out of an
+ * arbitrary FIFO
+ *
+ */
+/*a Includes */
+include "debug.h"
+include "fifo_status.h"
+
+/*a Types */
+/*t t_dbg_arb_fsm_state
+ *
+ * The arbiter FSM
+ */
+typedef fsm {
+    dbg_arb_fsm_idle {
+        dbg_arb_fsm_select, dbg_arb_fsm_start
+    } """Waiting for some form of 'start' from upstream
+
+    When a start arrives, transition to the select stage, to wait for
+    one byte which indicates which downstrem to wake up and use.
+
+    Could transition to 'ds_start' if start rather than start_clear
+                              
+    """;
+
+    dbg_arb_fsm_select {
+        dbg_arb_fsm_start, dbg_arb_fsm_completed_error
+    } """Waiting for first byte of data
+
+    The first byte of data indicates which downstream to wake up, and
+    whether to start it with start or start_clear
+
+    Once the first byte of data is received it is consumed, and we
+    move to start_downstream (action ds_start).
+
+    If the byte is the *last* data then instead of ds_start we go
+    to completed_error.
+
+    In this state the response type to upstream is 'running'.
+
+    Note: By protocol, all downstreams must be idle.
+    """;
+
+    dbg_arb_fsm_ds_start {
+        dbg_arb_fsm_ds_data_gap
+    } """Driving start or start_clear to downstream
+
+    No data is consumed from upstream if from idle; one byte if from select.
+
+    Stays here for one cycle, before moving to ds_data_gap
+
+    In this state the response type to upstream is 'running'
+
+    Note: By protocol, all downstreams must be idle; one will
+    transition in the next cycle to running.
+    """;
+        
+    dbg_arb_fsm_ds_data_gap {
+        dbg_arb_fsm_ds_data,
+        dbg_arb_fsm_ds_data_complete,
+        dbg_arb_fsm_completed_error,
+        dbg_arb_fsm_ds_completed
+    } """Driving data with no bytes valid to downstream
+
+    No data is consumed from upstream
+
+    Stays here for one cycle, before reflecting the upstream data
+    (last, num bytes, etc) to downstream in the next cycle. That is in state ds_data.
+
+    If upstream is driving last and no bytes valid then instead go to state_ds_data_complete.
+    to finished.
+
+    In this state the response type to upstream is 'running'
+
+    One downstream should be running or completed. If the combined
+    response is completed then capture that completion and go to
+    ds_completed. If none are running then go to completed_error.
+
+    """;
+
+    dbg_arb_fsm_ds_data {
+        dbg_arb_fsm_ds_data,
+        dbg_arb_fsm_ds_data_consumed,
+        dbg_arb_fsm_ds_data_complete,
+        dbg_arb_fsm_completed_error,
+        dbg_arb_fsm_ds_completed
+    } """Driving data with bytes valid to downstream
+
+    No data is consumed from upstream
+
+    Capture upstream op and bytes etc to downstream for next cycle
+
+    Stays here until downstream drives 'bytes_consumed'. When it does
+    capture that to present upstream and transition to
+    ds_data_consumed, and set downstream op and bytes valid to data 0.
+
+    In this state the response type to upstream is 'running'
+
+    One downstream should be running or completed. If the combined
+    response is completed then capture that completion and go to
+    ds_completed. If none are running then go to completed_error.
+    """;
+        
+    dbg_arb_fsm_ds_data_consumed {
+        dbg_arb_fsm_ds_data_gap,
+        dbg_arb_fsm_completed_error,
+        dbg_arb_fsm_ds_completed
+    } """Driving data with no bytes valid to downstream
+
+    Data will be being consumed from upstream.
+
+    Stays here for one cycle; moves to ds_data_gap.
+
+    In this state the response type to upstream is 'running'
+
+    One downstream should be running or completed. If the combined
+    response is completed then capture that completion and go to
+    ds_completed. If none are running then go to completed_error.
+    """;
+
+    dbg_arb_fsm_ds_data_complete {
+        dbg_arb_fsm_completed_error,
+        dbg_arb_fsm_ds_completed
+    } """Driving data_last with no bytes valid to downstream
+
+    No data will be being consumed from upstream.
+
+    Stay here.
+
+    In this state the response type to upstream is 'running'
+
+    One downstream should be running or completed. If the combined
+    response is completed then capture that completion and go to
+    ds_completed. If none are running then go to completed_error.
+    """;
+
+    dbg_arb_fsm_ds_completed {
+        dbg_arb_fsm_finished
+    } """Driving idle downstream, reporting ds complete from last cycle to upstream
+
+    In this state the response type to upstream is the captured
+    completion for downstream in tthe last cycle.
+
+    Go to finished.
+
+    All downstream should be idle.
+    """;
+
+    dbg_arb_fsm_completed_error {
+        dbg_arb_fsm_finished
+    } """Driving idle downstream, reporting error upstream
+
+    In this state the response type to upstream is completed with error
+
+    Go to finished.
+
+    All downstream should be idle.
+    """;
+
+    dbg_arb_fsm_finished {
+        dbg_arb_fsm_idle
+    } """Driving idle downstream and upstream
+
+    Go to idle
+
+    All downstream should be idle.
+    """;
+
+} t_dbg_arb_fsm;
+
+/*t t_dbg_arb_action
+ *
+ * Action of the script interface - start, start and clear, or data (or idle)
+ */
+typedef enum[4] {
+    dbg_arb_action_none        "No change",
+
+    dbg_arb_action_select      "Transition to select state and capture which downstream and start/clear; will consume 1 byte in next cycle",
+
+    dbg_arb_action_ds_start    "Transition to ds_start state, will consume nothing in next cycle",
+
+    dbg_arb_action_ds_data_gap "Transition to data_gap, tell downstream data of 0 bytes; will consume nothing in next cycle",
+
+    dbg_arb_action_ds_data     "Transition to data, capture upstream data for downstream; will consume nothing in next cycle",
+
+    dbg_arb_action_ds_data_consumed "Transition to data_consumed, tell downstream data of 0 bytes; will reflect downstream bytes conumed to upstream in next cycle",
+
+    dbg_arb_action_ds_data_complete "Transition to data_complete, tell downstream data_last of 0 bytes; will consume nothing in next cycle (as upstream indicated last/0)",
+
+    dbg_arb_action_ds_completed "Transition to finish, idling downstream, report ds completion to upstream next cycle",
+
+    dbg_arb_action_completed_error "Transition to completed_error, idling downstream, report completed error upstream next cycle",
+
+    dbg_arb_action_finish   "Transition to finished state, idling downstrem, report idle upstream in next cycle. Reset the 'clear' indication",
+
+    dbg_arb_action_idle   "Transition to idle state",
+
+} t_dbg_arb_action;
+
+/*t t_dbg_arb_state
+ *
+ * State of the script interface
+ */
+typedef struct {
+    t_dbg_arb_fsm fsm_state;
+    t_dbg_master_request ds_dbg_req;
+    t_dbg_master_response us_dbg_resp;
+    bit[3] ds_select;
+    bit ds_clear;
+} t_dbg_arb_state;
+
+/*t t_dbg_arb_combs
+ *
+ * Combinatorial decode of FSM state and upstream/downstream inputs
+ */
+typedef struct {
+    t_dbg_arb_action action;
+    bit us_data_is_last;
+    bit[4] us_bytes_valid;
+    bit[4] us_bytes_consumed;
+    bit[3] ds_select;
+    bit ds_clear;
+    t_dbg_master_response dbg_resp;
+    bit idle;
+} t_dbg_arb_combs;
+
+/*a Module */
+module dbg_master_mux( clock clk,
+                       input bit reset_n    "Active low reset",
+                       input t_dbg_master_request    dbg_master_req  "Request from the client to execute from an address in the ROM",
+                       output t_dbg_master_response  dbg_master_resp "Response to the client acknowledging a request",
+                       output t_dbg_master_request   req0,
+                       input t_dbg_master_response  resp0,
+                       output t_dbg_master_request   req1,
+                       input t_dbg_master_response  resp1,
+                       output t_dbg_master_request   req2,
+                       input t_dbg_master_response  resp2,
+                       output t_dbg_master_request   req3,
+                       input t_dbg_master_response  resp3
+    )
+"""
+"""
+{
+    /*b Clock and reset */
+    default clock clk;
+    default reset active_low reset_n;
+
+    clocked t_dbg_arb_state arb_state = {*=0};
+    comb t_dbg_arb_combs arb_combs;
+
+    /*b Decode the action */
+    decode_action """
+    """: {
+    arb_combs.ds_select = dbg_master_req.data[3;0];
+    arb_combs.ds_clear = dbg_master_req.data[7];
+        
+        arb_combs.us_data_is_last = 0;
+        arb_combs.us_bytes_valid = 0;
+        if (dbg_master_req.op == dbg_op_data_last) {
+            arb_combs.us_data_is_last = 1;
+            arb_combs.us_bytes_valid = dbg_master_req.num_data_valid;
+        } elsif (dbg_master_req.op == dbg_op_data) {
+            arb_combs.us_bytes_valid = dbg_master_req.num_data_valid;
+        }
+
+        arb_combs.action = dbg_arb_action_none;
+        arb_combs.us_bytes_consumed = 0;
+        arb_combs.idle = 0;
+        full_switch (arb_state.fsm_state) {
+        case dbg_arb_fsm_idle: {
+            arb_combs.idle = 1;
+            if (dbg_master_req.op == dbg_op_start_clear) {
+                arb_combs.action = dbg_arb_action_select;
+                arb_combs.idle = 0;
+            } elsif (dbg_master_req.op == dbg_op_start) {
+                arb_combs.action = dbg_arb_action_ds_start;
+                arb_combs.idle = 0;
+            }
+        }
+        case dbg_arb_fsm_select: {
+            arb_combs.action = dbg_arb_action_ds_start;
+            arb_combs.us_bytes_consumed = 1;
+            if (arb_combs.us_data_is_last && (arb_combs.us_bytes_valid < 2)) {
+                arb_combs.us_bytes_consumed = 0;
+                arb_combs.action = dbg_arb_action_completed_error;
+            } elsif (arb_combs.us_bytes_valid == 0) {
+                arb_combs.action = dbg_arb_action_none;
+                arb_combs.us_bytes_consumed = 0;
+            }
+        }
+        case dbg_arb_fsm_ds_start: {
+            arb_combs.action = dbg_arb_action_ds_data_gap;
+        }
+        case dbg_arb_fsm_ds_data_gap: {
+            arb_combs.action = dbg_arb_action_ds_data;
+            if (arb_combs.us_data_is_last && (arb_combs.us_bytes_valid==0)) {
+                arb_combs.action = dbg_arb_action_ds_data_complete;
+            }
+            if (arb_combs.dbg_resp.resp_type == dbg_resp_idle) {
+                arb_combs.action = dbg_arb_action_completed_error;
+            } elsif (arb_combs.dbg_resp.resp_type != dbg_resp_running) {
+                arb_combs.action = dbg_arb_action_ds_completed;
+            }
+        }
+        case dbg_arb_fsm_ds_data: {
+            if (arb_combs.dbg_resp.bytes_consumed != 0) {
+                arb_combs.action = dbg_arb_action_ds_data_consumed;
+                arb_combs.us_bytes_consumed = arb_combs.dbg_resp.bytes_consumed;
+            }
+            if (arb_combs.us_data_is_last && (arb_combs.us_bytes_valid==0)) {
+                arb_combs.action = dbg_arb_action_ds_data_complete;
+            }
+            if (arb_combs.dbg_resp.resp_type == dbg_resp_idle) {
+                arb_combs.action = dbg_arb_action_completed_error;
+            } elsif (arb_combs.dbg_resp.resp_type != dbg_resp_running) {
+                arb_combs.action = dbg_arb_action_ds_completed;
+            }
+        }
+        case dbg_arb_fsm_ds_data_consumed: {
+            arb_combs.action = dbg_arb_action_ds_data_gap;
+            if (arb_combs.dbg_resp.resp_type == dbg_resp_idle) {
+                arb_combs.action = dbg_arb_action_completed_error;
+            } elsif (arb_combs.dbg_resp.resp_type != dbg_resp_running) {
+                arb_combs.action = dbg_arb_action_ds_completed;
+            }
+        }
+        case dbg_arb_fsm_ds_data_complete: {
+            if (arb_combs.dbg_resp.resp_type == dbg_resp_idle) {
+                arb_combs.action = dbg_arb_action_completed_error;
+            } elsif (arb_combs.dbg_resp.resp_type != dbg_resp_running) {
+                arb_combs.action = dbg_arb_action_ds_completed;
+            }
+        }
+        case dbg_arb_fsm_ds_completed: {
+            arb_combs.action = dbg_arb_action_finish;
+        }
+        case dbg_arb_fsm_completed_error: {
+            arb_combs.action = dbg_arb_action_finish;
+        }
+        case dbg_arb_fsm_finished: {
+            arb_combs.action = dbg_arb_action_idle;
+        }
+        }
+    }
+
+    /*b Interpret action for state change
+     */
+    interpret_action: {
+        arb_state.us_dbg_resp.bytes_consumed <= arb_combs.us_bytes_consumed;
+        arb_state.us_dbg_resp.bytes_valid <= arb_combs.dbg_resp.bytes_valid;
+        arb_state.us_dbg_resp.data <= arb_combs.dbg_resp.data;
+
+        full_switch (arb_combs.action) {
+        case dbg_arb_action_idle: {
+            arb_state.fsm_state <= dbg_arb_fsm_idle;
+            arb_state.us_dbg_resp.resp_type <= dbg_resp_idle;
+            arb_state.ds_dbg_req.op <= dbg_op_idle;
+            arb_state.ds_dbg_req.num_data_valid <= 0;
+        }
+        case dbg_arb_action_select: {
+            arb_state.fsm_state <= dbg_arb_fsm_select;
+            arb_state.us_dbg_resp.resp_type <= dbg_resp_running;
+        }
+        case dbg_arb_action_ds_start: {
+            arb_state.fsm_state <= dbg_arb_fsm_ds_start;
+            arb_state.ds_select <= arb_combs.ds_select;
+            arb_state.ds_clear <= arb_combs.ds_clear;
+            arb_state.ds_dbg_req.op <= dbg_op_start;
+            if (arb_state.ds_clear) {
+                arb_state.ds_dbg_req.op <= dbg_op_start_clear;
+                arb_state.ds_clear <= 0;
+            }
+        }
+        case dbg_arb_action_ds_data_gap: {
+            arb_state.fsm_state <= dbg_arb_fsm_ds_data_gap;
+            arb_state.ds_dbg_req.op <= dbg_op_data;
+            arb_state.ds_dbg_req.num_data_valid <= 0;
+        }
+        case dbg_arb_action_ds_data: {
+            arb_state.fsm_state <= dbg_arb_fsm_ds_data;
+            arb_state.ds_dbg_req <= dbg_master_req;
+        }
+        case dbg_arb_action_ds_data_consumed: {
+            arb_state.fsm_state <= dbg_arb_fsm_ds_data_consumed;
+            arb_state.ds_dbg_req.op <= dbg_op_data;
+            arb_state.ds_dbg_req.num_data_valid <= 0;
+        }
+        case dbg_arb_action_ds_data_complete: {
+            arb_state.fsm_state <= dbg_arb_fsm_ds_data_complete;
+            arb_state.ds_dbg_req.op <= dbg_op_data_last;
+            arb_state.ds_dbg_req.num_data_valid <= 0;
+        }
+        case dbg_arb_action_ds_completed: {
+            arb_state.fsm_state <= dbg_arb_fsm_ds_completed;
+            arb_state.ds_dbg_req.op <= dbg_op_idle;
+            arb_state.ds_dbg_req.num_data_valid <= 0;
+            arb_state.us_dbg_resp.resp_type <= arb_combs.dbg_resp.resp_type;
+        }
+        case dbg_arb_action_completed_error: {
+            arb_state.fsm_state <= dbg_arb_fsm_completed_error;
+            arb_state.ds_dbg_req.op <= dbg_op_idle;
+            arb_state.ds_dbg_req.num_data_valid <= 0;
+            arb_state.us_dbg_resp.resp_type <= dbg_resp_errored;
+        }
+        case dbg_arb_action_finish: {
+            arb_state.fsm_state <= dbg_arb_fsm_finished;
+            arb_state.ds_dbg_req.op <= dbg_op_idle;
+            arb_state.ds_dbg_req.num_data_valid <= 0;
+        }
+        default: {
+            arb_state.fsm_state <= arb_state.fsm_state;
+        }
+        }
+        if (arb_combs.idle) {
+            arb_state <= arb_state;
+        }
+    }
+
+    /*b Drive downstream outputs
+     */
+    drive_ds_outputs : {
+        dbg_master_resp = arb_state.us_dbg_resp;
+
+        req0 = {*=0};
+        req1 = {*=0};
+        req2 = {*=0};
+        req2 = {*=0};
+
+        full_switch (arb_state.ds_select) {
+        case 0: {
+            req0 = arb_state.ds_dbg_req;
+        }
+        case 1: {
+            req1 = arb_state.ds_dbg_req;
+        }
+        case 2: {
+            req2 = arb_state.ds_dbg_req;
+        }
+        case 3: {
+            req3 = arb_state.ds_dbg_req;
+        }
+        default: {
+            req0 = {*=0};
+        }
+        }
+        /*b All done */
+    }
+
+    /*b Combine downstream inputs
+     */
+    combine_ds_inputs : {
+        arb_combs.dbg_resp.resp_type = resp0.resp_type | resp1.resp_type | resp2.resp_type | resp3.resp_type;
+        arb_combs.dbg_resp.bytes_valid = resp0.bytes_valid | resp1.bytes_valid | resp2.bytes_valid | resp3.bytes_valid;
+        arb_combs.dbg_resp.bytes_consumed = resp0.bytes_consumed | resp1.bytes_consumed | resp2.bytes_consumed | resp3.bytes_consumed;
+        arb_combs.dbg_resp.data = resp0.data | resp1.data | resp2.data | resp3.data;
+
+        /*b All done */
+    }
+
+    /*b All done */
+}
