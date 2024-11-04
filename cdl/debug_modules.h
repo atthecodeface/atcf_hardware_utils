@@ -2,7 +2,30 @@
 include "debug.h"
 
 /*a Modules */
-/*m dprintf */
+/*m dbg_master_mux */
+extern
+module dbg_master_mux( clock clk,
+                       input bit reset_n    "Active low reset",
+                       input t_dbg_master_request    dbg_master_req  "Request from the client to execute from an address in the ROM",
+                       output t_dbg_master_response  dbg_master_resp "Response to the client acknowledging a request",
+                       output t_dbg_master_request   req0,
+                       input t_dbg_master_response  resp0,
+                       output t_dbg_master_request   req1,
+                       input t_dbg_master_response  resp1,
+                       output t_dbg_master_request   req2,
+                       input t_dbg_master_response  resp2,
+                       output t_dbg_master_request   req3,
+                       input t_dbg_master_response  resp3
+    )
+{
+    timing to   rising clock clk dbg_master_req;
+    timing from rising clock clk dbg_master_resp;
+
+    timing from rising clock clk req0, req1, req2, req3;
+    timing to   rising clock clk resp0, resp1, resp2, resp3;
+}
+
+/*m dbg_master_fifo_sink */
 extern
 module dbg_master_fifo_sink( clock clk,
                              input bit reset_n    "Active low reset",
