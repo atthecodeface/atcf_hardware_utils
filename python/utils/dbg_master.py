@@ -1,4 +1,4 @@
-
+#a Structs
 #t t_dbg_master_op
 t_dbg_master_op = {
     "dbg_op_idle":0,
@@ -32,7 +32,25 @@ t_dbg_master_response  = {
     "data":32,
 }
 
-#a Bus driver
+#a DbgMasterMuxScript
+class DbgMasterMuxScript:
+    def __init__(self, select:int, clear:bool, subscript):
+        self.select = select
+        self.clear = clear
+        self.subscript = subscript
+        pass
+    def as_bytes(self) -> bytes:
+        r = self.subscript.as_bytes()
+        if self.clear:
+            r.insert(0,128 + self.select)
+            pass
+        else:
+            r.insert(0,self.select)
+            pass
+        return r
+    pass
+
+#a DbgMasterFifoScript
 class DbgMasterFifoScript:
     def __init__(self, ops):
         self.ops = ops
@@ -56,7 +74,7 @@ class DbgMasterFifoScript:
             pass
         return r
     pass
-#a Bus driver
+#a DbgMaster
 class DbgMaster:
     def __init__(self, obj, req_name:str, resp_name:str):
         self.resp_type = getattr(obj, resp_name+"__resp_type")
