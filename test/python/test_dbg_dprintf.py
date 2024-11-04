@@ -17,7 +17,7 @@
 
 #a Imports
 from queue import Queue
-from regress.utils import t_dprintf_req_4, t_dprintf_byte, Dprintf, t_dbg_master_request, t_dbg_master_response, DprintfBus, DbgMaster, DbgMasterFifoScript, FifoStatus
+from regress.utils import t_dprintf_req_4, t_dprintf_byte, Dprintf, t_dbg_master_request, t_dbg_master_response, DprintfBus, DbgMaster, DbgMasterMuxScript, DbgMasterFifoScript, FifoStatus
 from cdl.utils   import csr
 from cdl.sim     import ThExecFile, LogEventParser
 from cdl.sim     import HardwareThDut
@@ -64,8 +64,11 @@ class DprintfTest_Base(ThExecFile):
             for d in data:
                 self.drive_dprintf_req(d)
                 pass
+            # Insert 'select' for the mux
+            script = DbgMasterMuxScript(select=1, clear=False, subscript=script)
+            script_bytes = script.as_bytes()
             (completion, res_data) = self.dbg_master.invoke_script_bytes(
-                script.as_bytes(),
+                script_bytes,
                 self.bfm_wait,
                 lambda :0,
                 1000)

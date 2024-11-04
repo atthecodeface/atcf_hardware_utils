@@ -44,8 +44,14 @@ module tb_dbg_dprintf_fifo( clock clk,
     net bit               dbg_pop_fifo;
     net t_fifo_status     dprintf_fifo_status;
 
+    net t_dbg_master_request  dbg_master_req_fifo;
+    net t_dbg_master_response dbg_master_resp_fifo;
+
+    comb t_dbg_master_response resp_none;
+
     /*b Instantiations */
     instantiations: {
+        resp_none = {*=0};
         dprintf_4_fifo_512 fifo( clk <- clk,
                                  reset_n <= reset_n,
                                  req_in <= dprintf_req,
@@ -54,10 +60,20 @@ module tb_dbg_dprintf_fifo( clock clk,
                                  ack_out <= dbg_pop_fifo,
                                  fifo_status => dprintf_fifo_status );
 
+        dbg_master_mux mux( clk <- clk,
+                                 reset_n <= reset_n,
+                                 dbg_master_req <= dbg_master_req,
+                                 dbg_master_resp => dbg_master_resp,
+                                 req1 => dbg_master_req_fifo,
+                                 resp1 <= dbg_master_resp_fifo,
+                                 resp0 <= resp_none,
+                                 resp2 <= resp_none,
+                                 resp3 <= resp_none
+            );
         dbg_master_fifo_sink dut( clk <- clk,
                                  reset_n <= reset_n,
-                                  dbg_master_req <= dbg_master_req,
-                                  dbg_master_resp => dbg_master_resp,
+                                  dbg_master_req <= dbg_master_req_fifo,
+                                  dbg_master_resp => dbg_master_resp_fifo,
                                   fifo_status <= dprintf_fifo_status,
                                   data0 <= dprintf_fifo_out_req.data_0,
                                   data1 <= dprintf_fifo_out_req.data_1,
