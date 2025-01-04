@@ -1,0 +1,145 @@
+/*a Constants */
+constant integer fifo_depth = 24;
+constant integer dbl_fifo_depth = fifo_depth+fifo_depth;
+constant integer max_bytes_per_access = 8;
+constant integer data_size = 8*max_bytes_per_access;
+constant integer bv_size = sizeof(max_bytes_per_access);
+
+constant integer fifo_entries_mask=(1<<sizeof(fifo_depth))-1;
+
+/*a Includes
+ */
+include "fifo_status.h"
+
+typedef struct {
+    bit[8] data;
+} t_byte;
+
+module byte_fifo_multiaccess (
+    clock clk,
+    input bit reset_n,
+
+    input bit[data_size] data_in "64 bits of data valid in",
+    input bit[bv_size] data_in_bytes_valid "0 to 8 bytes valid in, for push",
+
+    input bit[bv_size] data_bytes_popped "Number of data_out bytes popped",
+    output bit[data_size] data_out "Data out from the FIFO, byte 0 first",
+    output bit[bv_size] data_out_bytes_valid "Number of bytes valid in data_out, 0 to 8",
+
+    output t_fifo_status fifo_status "Fifo status"
+    )
+{
+    default clock clk;
+    default reset active_low reset_n;
+
+    clocked t_fifo_status fifo_status={*=0, spaces_available=fifo_depth, empty=1}  "Fifo status";
+
+    clocked bit[fifo_depth] read_bit = 1 "One-hot bit indicating which entry drives data_out byte 0";
+    clocked bit[fifo_depth] write_bit = 1 "One-hot bit indicating which entry is written by data_in byte 0";
+
+    clocked t_byte[fifo_depth] buffer = {*=0} "The data buffer contents";
+
+    comb bit[dbl_fifo_depth] read_bit_replicated "Two copies of read_bit, back-to-back";
+    comb bit[dbl_fifo_depth] write_bit_replicated "Two copies of write_bit, back-to-back";
+    comb bit[dbl_fifo_depth] read_bit_after_pop "One-hot bit set in top N bits for next read_bit value";
+    comb bit[dbl_fifo_depth] write_bit_after_push "One-hot bit set in top N bits for next write_bit value";
+
+    comb bit[32] data_in_bytes_valid_32 "32-bit zero-extended version of 'data_in_bytes_valid'";
+    comb bit[32] data_bytes_popped_32 "32-bit zero-extended version of 'data_bytes_popped'";
+    comb bit[32] bytes_valid_increase "32-bit difference between amount pushed and amount popped";
+    comb bit push;
+    comb bit pop;
+
+    buffer_write: {
+        write_bit_replicated = bundle(write_bit, write_bit);
+
+        if (push) {
+            for (j; max_bytes_per_access) {
+                if (data_in_bytes_valid > j) {
+                    for (i; fifo_depth) {
+                        if (write_bit_replicated[fifo_depth+i-j]) {
+                            buffer[i].data <= data_in[8;8*j];
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    buffer_read: {
+        read_bit_replicated = bundle(read_bit, read_bit);
+        data_out = 0;
+        for (j; max_bytes_per_access) {
+            for (i; fifo_depth) {
+                if (read_bit_replicated[fifo_depth+i-j]) {
+                    data_out[8;8*j] |= buffer[i].data;
+                }
+            }
+        }
+        data_out_bytes_valid = fifo_status.entries_full[bv_size;0];
+        if (fifo_status.entries_full > max_bytes_per_access) {
+            data_out_bytes_valid = max_bytes_per_access;
+        }
+    }
+
+    fifo_ptr_handling : {
+        push = 0;
+        pop = 0;
+        if (data_in_bytes_valid != 0) {
+            push = 1;
+        }
+        if (data_bytes_popped != 0) {
+            pop = 1;
+        }
+
+        write_bit_after_push = bundle(write_bit, write_bit) << data_in_bytes_valid;
+        read_bit_after_pop = bundle(read_bit, read_bit) << data_bytes_popped;
+        if (push) {
+            write_bit <= write_bit_after_push[fifo_depth;fifo_depth];
+        }
+        if (pop) {
+            read_bit <= read_bit_after_pop[fifo_depth;fifo_depth];
+        }
+    }
+
+    fifo_status_logic : {
+        data_in_bytes_valid_32 = 0;
+        data_in_bytes_valid_32[bv_size;0] = data_in_bytes_valid;
+        data_bytes_popped_32 = 0;
+        data_bytes_popped_32[bv_size;0] = data_bytes_popped;
+
+        bytes_valid_increase = data_in_bytes_valid_32 - data_bytes_popped_32;
+
+        if (push || fifo_status.pushed) {
+            fifo_status.pushed <= push;
+        }
+        if (pop || fifo_status.popped) {
+            fifo_status.popped <= pop;
+        }
+
+        if (data_in_bytes_valid_32 > fifo_status.spaces_available) {
+            fifo_status.overflowed <= 1;
+        }
+
+        if (data_bytes_popped_32 > fifo_status.entries_full) {
+            fifo_status.underflowed <= 1;
+        }
+
+        if (push || pop) {
+            fifo_status.full <= 0;
+            fifo_status.empty <= 0;
+            fifo_status.spaces_available <= (fifo_status.spaces_available - bytes_valid_increase) & fifo_entries_mask;
+            fifo_status.entries_full <= (fifo_status.entries_full + bytes_valid_increase) & fifo_entries_mask;
+
+            if ((fifo_status.spaces_available - bytes_valid_increase) == 0) {
+                fifo_status.full <= 1;
+            }
+            if ((fifo_status.entries_full + bytes_valid_increase) == 0) {
+                fifo_status.empty <= 1;
+            }
+                
+        }
+    }
+}
+
+    

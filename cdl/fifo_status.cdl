@@ -36,10 +36,15 @@ module fifo_status( clock clk                            "Clock for logic",
     default clock clk;
 
     clocked t_fifo_status fifo_status={*=0, empty=1}  "Fifo status";
+    clocked bit init_done = 0;
 
     /*b Status logic */
     status_logic """
     """: {
+        if (!init_done) {
+            fifo_status.spaces_available <= max_entries & fifo_entries_mask;
+            init_done <= 1;
+        }
         fifo_status.pushed <= push;
         fifo_status.popped <= pop;
         if (fifo_status.empty && pop && !push) {
@@ -53,9 +58,11 @@ module fifo_status( clock clk                            "Clock for logic",
         if (pop) {
             if (push) {
                 fifo_status.entries_full <= fifo_status.entries_full & fifo_entries_mask;
+                fifo_status.spaces_available <= fifo_status.spaces_available & fifo_entries_mask;
             } else {
                 fifo_status.full <= 0;
                 fifo_status.entries_full <= (fifo_status.entries_full-1) & fifo_entries_mask;
+                fifo_status.spaces_available <= (fifo_status.spaces_available+1) & fifo_entries_mask;
                 if (fifo_status.entries_full==1) {
                     fifo_status.empty <= 1;
                 }
@@ -64,6 +71,7 @@ module fifo_status( clock clk                            "Clock for logic",
             if (push) {
                 fifo_status.empty <= 0;
                 fifo_status.entries_full <= (fifo_status.entries_full+1) & fifo_entries_mask;
+                fifo_status.spaces_available <= (fifo_status.spaces_available-1) & fifo_entries_mask;
                 if (fifo_status.entries_full==max_entries-1) {
                     fifo_status.full <= 1;
                 }

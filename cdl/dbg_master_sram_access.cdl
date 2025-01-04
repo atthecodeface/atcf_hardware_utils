@@ -1,0 +1,425 @@
+/** @copyright (C) 2024,  Gavin J Stark.  All rights reserved.
+ *
+ * @copyright
+ *    Licensed under the Apache License, Version 2.0 (the "License");
+ *    you may not use this file except in compliance with the License.
+ *    You may obtain a copy of the License at
+ *     http://www.apache.org/licenses/LICENSE-2.0.
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ *
+ * @file   dbg_master_fifo_sink.cdl
+ * @brief  Simple 'debug master' that sinks data out of a FIFO
+ *
+ * CDL implementation of a debug 'master' that sinks data out of an
+ * arbitrary FIFO
+ *
+ */
+/*a Includes */
+include "debug.h"
+include "sram_access.h"
+
+/*a Types */
+/*t t_dbg_if_action
+ *
+ * Action of the script interface - start, start and clear, or data (or idle)
+ */
+typedef enum[2] {
+    dbg_if_action_none         "Script FSM is idle - remain in idle",
+    dbg_if_action_start        "Start the script engine without clearing state",
+    dbg_if_action_data         "Zero or more bytes of (possibly last) data are valid",
+} t_dbg_if_action;
+
+/*t t_dbg_if_state
+ *
+ * State of the script interface
+ */
+typedef struct {
+    bit busy;
+    bit completed;
+    t_dbg_master_resp_type resp;
+    bit data_is_last;
+    bit[40] data;
+    bit[3] num_data_valid;
+} t_dbg_if_state;
+
+/*t t_sram_access_action
+ *
+ * Action that the FIFO ctrl is taking, based on the FSM state and the opcode etc
+ */
+typedef enum [4] {
+    sram_access_action_none,
+    sram_access_action_start,
+    sram_access_action_do_read,
+    sram_access_action_wait_for_data,
+    sram_access_action_start_data,
+    sram_access_action_read_data_gap,
+    sram_access_action_read_next_data,
+    sram_access_action_read_data_gap_last_more_words,
+    sram_access_action_read_data_gap_last,
+    sram_access_action_complete_okay         "Enter complete state with okay completion",
+    sram_access_action_complete_errored      "Enter complete state with errored completion"
+} t_sram_access_action;
+
+/*t t_sram_access_fsm_state
+ *
+ * Sram_Access FSM states
+ */
+typedef fsm {
+    sram_access_fsm_idle  {
+        sram_access_fsm_wait_for_op
+    }  """Waiting to start
+
+    """;
+
+    sram_access_fsm_wait_for_op {
+        sram_access_fsm_idle,
+        sram_access_fsm_issuing_read
+        } """Waiting for a valid opcode sequence from dbg interface
+
+    When a read arrives (with address and length) then start an SRAM
+    access on the next cycle, and enter issuing_read
+
+    An invalid last request completes with error; valid no request
+    completes normally.
+    """;
+
+    sram_access_fsm_issuing_read {
+        sram_access_fsm_wait_for_data
+    }   """Driving valid SRAM access request
+
+    Whem the SRAM request is acked start waiting for data
+    """;
+
+    sram_access_fsm_wait_for_data {
+        sram_access_fsm_data
+    }   """Waiting for SRAM to provide data in response
+
+    When the SRAM has valid data it must be captured, and presented on
+    following cycles
+
+    """;
+
+    sram_access_fsm_read_data {
+        sram_access_read_data_gap
+    }   """Presenting valid read data out
+
+    Move to read_data_gap and don't present any data in next cycle
+
+    """;
+
+    sram_access_fsm_read_data_gap {
+        sram_access_fsm_read_data,
+        sram_access_fsm_issuing_read,
+        sram_access_fsm_wait_for_op
+    }  """Presenting no data; dispatch to get next data for response
+
+    If this is the last data to be presented then go back to wait for op
+
+    If this is the last word of data but there is more to read then issue a new read
+
+    If this is not the last word of data then go back to read_data
+    """;
+
+} t_sram_access_fsm_state;
+
+/*t t_sram_access_state
+ *
+ * State for the ROM side of the sram_access - effectively program
+ * counter and the data read from the ROM - plus an indication that
+ * the sram_access is idle.
+ *
+ * Sram_Access execution state; FSM and APB address, accumulator and repeat count
+ */
+typedef struct {
+    t_sram_access_fsm_state fsm_state   "Sram_Access FSM state machine state";
+    bit[4] count;
+    bit[4] byte_count;
+    bit[16] word_count;
+    bit[64] data;
+    t_sram_access_req sram_access;
+
+    bit[3] data_bytes_valid;
+} t_sram_access_state;
+
+/*t t_sram_access_combs
+ *
+ * Combinatorial signals decoded from the @a script_state - basically the ROM read request
+ *
+ * Combinatorial decode of the script state, used to control the ROM state and the APB state machine
+ */
+typedef struct {
+    t_sram_access_action action        "Action that the script should take";
+
+    bit[8] opcode;
+    bit[2] opcode_class "Which class of opcode";
+    bit[4] opcode_data_size "Size of data to pop";
+    bit[32] address "SRAM address to read";
+    bit[16] num_data "Number of data (for fifo pop, X otherwise)";
+
+    bit opcode_is_read "Asserted if opcode is an SRAM read";
+
+    bit[3] bytes_required;
+    bit[3] bytes_consumed;
+    bit has_required_bytes;
+
+    bit[3] read_data_bytes_valid;
+    
+    bit completed;
+    bit poll_failed;
+    bit errored;
+} t_sram_access_combs;
+
+/*a Module */
+module dbg_master_sram_access( clock clk,
+                             input bit reset_n    "Active low reset",
+                             input t_dbg_master_request    dbg_master_req  "Request from the client to execute from an address in the ROM",
+                             output t_dbg_master_response  dbg_master_resp "Response to the client acknowledging a request",
+                               output t_sram_access_req sram_access_req,
+                               input t_sram_access_resp sram_access_resp
+
+    )
+"""
+Debug script is opcode of (2,6) [24]:
+
+ 0_0 A16 N16 : read N bytes from address
+ 0_1 A16 N16 : read N 16-bit values from address
+ 0_2 A16 N16 : read N 24-bit values from address
+ 0_3 A16 N16 : read N words from address
+ 0_4 A16 N16 : read N 40-bit values from address
+ 0_5 A16 N16 : read N 48-bit values from address
+ 0_6 A16 N16 : read N 56-bit values from address
+ 0_7 A16 N16 : read N 64-bit values from address
+"""
+{
+    /*b Clock and reset */
+    default clock clk;
+    default reset active_low reset_n;
+
+    comb t_dbg_if_action dbg_if_action;
+    clocked t_dbg_if_state dbg_if_state = {*=0};
+
+    comb t_sram_access_combs           sram_access_combs       "Combinatorial decode of ROM state";
+    clocked t_sram_access_state        sram_access_state={*=0}                                      "State of the ROM-side; request and ROM access";
+
+    /*b Script interface logic */
+    script_interface_logic """
+    Start a script (go @a busy) when a start or start_clear op comes in.
+    Start the script state machine (with optional clear).
+
+    Then register data if provided, with a 'last' indication; provide this to
+    the script state machine.
+    Drive out the number of bytes consumed by the state machine, when used, and
+    in the next tycle provide no data to the script state machine.
+
+    """: {
+        /*b Handle the state of the request/ack */
+        dbg_if_action = dbg_if_action_none;
+        if (dbg_if_state.busy) {
+            dbg_if_action = dbg_if_action_data;
+            if (sram_access_combs.completed) {
+                dbg_if_state.busy <= 0;
+                dbg_if_state.completed <= 1;
+                dbg_if_state.resp <= dbg_resp_completed;
+                if (sram_access_combs.poll_failed) {
+                    dbg_if_state.resp <= dbg_resp_poll_failed;
+                }
+                if (sram_access_combs.errored) {
+                    dbg_if_state.resp <= dbg_resp_errored;
+                }
+            }
+            if ((dbg_master_req.op == dbg_op_data) || (dbg_master_req.op == dbg_op_data_last)) {
+                dbg_if_state.data <= dbg_master_req.data[40;0];
+                dbg_if_state.num_data_valid <= dbg_master_req.num_data_valid[3;0];
+                if (dbg_master_req.num_data_valid >= 7) {
+                    dbg_if_state.num_data_valid <= 7;
+                }
+                dbg_if_state.data_is_last <= (dbg_master_req.op == dbg_op_data_last);
+            }
+            if (sram_access_combs.bytes_consumed>0) {
+                dbg_if_state.num_data_valid <= 0;
+                dbg_if_state.data_is_last <= 0;
+            }
+        } elsif (dbg_if_state.completed) {
+            dbg_if_state.completed <= 0;
+        } else {
+            if ((dbg_master_req.op == dbg_op_start) || (dbg_master_req.op == dbg_op_start_clear)) {
+                dbg_if_action = dbg_if_action_start;
+                dbg_if_state.busy <= 1;
+                dbg_if_state.num_data_valid <= 0;
+                dbg_if_state.data_is_last <= 0;
+            }
+        }
+
+        /*b Drive outputs */
+        dbg_master_resp.resp_type = dbg_resp_idle;
+        if (dbg_if_state.completed) {
+            dbg_master_resp.resp_type = dbg_if_state.resp;
+        }
+        if (dbg_if_state.busy) {
+            dbg_master_resp.resp_type = dbg_resp_running;
+        }
+        dbg_master_resp.bytes_consumed = bundle(1b0, sram_access_combs.bytes_consumed);
+        dbg_master_resp.bytes_valid = sram_access_state.data_bytes_valid;
+        dbg_master_resp.data        = sram_access_state.data[32;0];
+
+        /*b All done */
+    }
+
+    /*b Script execute logic */
+    script_execute_logic """
+    Break out the script interface data.
+
+    """: {
+        /*b Breakout the state for decode into action */
+        sram_access_combs.opcode     = dbg_if_state.data[8;0];
+
+        sram_access_combs.opcode     = dbg_if_state.data[8;0];
+        sram_access_combs.address    = bundle(16b0, dbg_if_state.data[16;8]);
+        sram_access_combs.num_data   = dbg_if_state.data[16;24];
+        sram_access_combs.opcode_class     = sram_access_combs.opcode[2;6];
+        sram_access_combs.opcode_data_size = sram_access_combs.opcode[4;0];
+
+        sram_access_combs.opcode_is_read   = 1;
+
+        sram_access_combs.bytes_required = 1;
+        if (sram_access_combs.opcode_is_read) {
+            sram_access_combs.bytes_required = 5;
+        }
+        sram_access_combs.has_required_bytes = dbg_if_state.num_data_valid >= sram_access_combs.bytes_required;
+
+        sram_access_combs.completed = 0;
+        sram_access_combs.poll_failed = 0;
+        sram_access_combs.errored = 0;
+
+        /*b Determine script action */
+        sram_access_combs.action = sram_access_action_none;
+        sram_access_combs.bytes_consumed = 0;
+        full_switch (sram_access_state.fsm_state) {
+        case sram_access_fsm_idle: {
+            if (dbg_if_action == dbg_if_action_start) {
+                sram_access_combs.action = sram_access_action_start;
+            }
+        }
+        case sram_access_fsm_wait_for_op: {
+            if (sram_access_combs.has_required_bytes) {
+                sram_access_combs.action = sram_access_action_do_read;
+                sram_access_combs.bytes_consumed = sram_access_combs.bytes_required;
+            } elsif (dbg_if_state.data_is_last) {
+                if (dbg_if_state.num_data_valid == 0) {
+                    sram_access_combs.completed = 1;
+                    sram_access_combs.errored = 0;
+                    sram_access_combs.action = sram_access_action_complete_okay;
+                } else {
+                    sram_access_combs.completed = 1;
+                    sram_access_combs.errored = 1;
+                    sram_access_combs.action = sram_access_action_complete_errored;
+                }
+            }
+        }
+        case sram_access_fsm_issuing_read: {
+            if (sram_access_resp.ack) {
+                sram_access_combs.action = sram_access_action_wait_for_data;
+            }
+        }
+        case sram_access_fsm_wait_for_data: {
+            if (sram_access_resp.valid) {
+                sram_access_combs.action = sram_access_action_start_data;
+            }
+        }
+        case sram_access_fsm_read_data: {
+            sram_access_combs.action = sram_access_action_read_data_gap;
+        }
+        case sram_access_fsm_read_data_gap: {
+            sram_access_combs.action = sram_access_action_read_next_data;
+            if (sram_access_state.count < 4) {
+                if (sram_access_state.word_count == 0) {
+                    sram_access_combs.action = sram_access_action_read_data_gap_last;
+                } else {
+                    sram_access_combs.action = sram_access_action_read_data_gap_last_more_words;
+                }
+            }
+        }
+        }
+
+        sram_access_combs.read_data_bytes_valid = 4;
+        if (sram_access_state.count < 4) {
+            sram_access_combs.read_data_bytes_valid = sram_access_state.count[3;0]+1;
+        }
+    }
+
+    /*b Implementt the action
+     */
+    implement_action : {
+        sram_access_state.sram_access.id <= 0;
+        sram_access_state.sram_access.byte_enable <= 0;
+        sram_access_state.sram_access.write_data <= 0;
+
+        sram_access_state.data_bytes_valid <= 0;
+        full_switch (sram_access_combs.action) {
+        case sram_access_action_start: {
+            sram_access_state.fsm_state <= sram_access_fsm_wait_for_op;
+        }
+        case sram_access_action_do_read: {
+            sram_access_state.fsm_state <= sram_access_fsm_issuing_read;
+            sram_access_state.count      <= sram_access_combs.opcode_data_size;
+            sram_access_state.byte_count <= sram_access_combs.opcode_data_size;
+            sram_access_state.word_count <= sram_access_combs.num_data;
+            sram_access_state.sram_access.valid <= 1;
+            sram_access_state.sram_access.read_not_write <= 1;
+            sram_access_state.sram_access.address <= sram_access_combs.address;
+        }
+        case sram_access_action_wait_for_data: {
+            // Sram access request is valid, but is being acked
+            sram_access_state.fsm_state <= sram_access_fsm_wait_for_data;
+            sram_access_state.sram_access.valid   <= 0;
+            sram_access_state.sram_access.address <= sram_access_state.sram_access.address+1;
+            sram_access_state.count               <= sram_access_state.byte_count;
+        }
+        case sram_access_action_start_data: {
+            // Sram access response has valid data
+            sram_access_state.fsm_state <= sram_access_fsm_read_data;
+            sram_access_state.data_bytes_valid <= sram_access_combs.read_data_bytes_valid;
+            sram_access_state.data <= sram_access_resp.data;
+        }
+        case sram_access_action_read_next_data: {
+            sram_access_state.fsm_state <= sram_access_fsm_read_data;
+            sram_access_state.data_bytes_valid <= sram_access_combs.read_data_bytes_valid;
+            sram_access_state.count <= sram_access_state.count - 4;
+            sram_access_state.data[32;0] <= sram_access_resp.data[32;32];
+        }
+        case sram_access_action_read_data_gap: {
+            sram_access_state.fsm_state <= sram_access_fsm_read_data_gap;
+        }
+        case sram_access_action_read_data_gap_last_more_words: {
+            sram_access_state.fsm_state <= sram_access_fsm_issuing_read;
+            sram_access_state.count <= sram_access_state.byte_count;
+            sram_access_state.word_count <= sram_access_state.word_count - 1;
+            sram_access_state.sram_access.valid <= 1;
+        }
+        case sram_access_action_read_data_gap_last: {
+            sram_access_state.fsm_state <= sram_access_fsm_wait_for_op;
+        }
+        case sram_access_action_complete_okay: {
+            sram_access_state.data <= 0;
+            sram_access_state.data_bytes_valid <= 0;
+            sram_access_state.fsm_state <= sram_access_fsm_idle;
+        }
+        case sram_access_action_complete_errored: {
+            sram_access_state.data <= 0;
+            sram_access_state.data_bytes_valid <= 0;
+            sram_access_state.fsm_state <= sram_access_fsm_idle;
+        }
+        case sram_access_action_none: {
+            sram_access_state.fsm_state <= sram_access_state.fsm_state;
+        }
+        }
+
+        sram_access_req = sram_access_state.sram_access;
+    }
+
+    /*b All done */
+}

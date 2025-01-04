@@ -59,7 +59,7 @@ module sram_access_mux_2( clock clk                            "Clock for logic"
         resp_b.id   = access_in_progress.id;
         resp_a.data = resp.data;
         resp_b.data = resp.data;
-        if (access_in_progress.valid) {
+        if (access_in_progress.valid && resp.valid) {
             resp_a.valid =  access_in_progress_for_a;
             resp_b.valid = !access_in_progress_for_a;
         }

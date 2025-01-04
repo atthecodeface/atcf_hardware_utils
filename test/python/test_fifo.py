@@ -18,8 +18,8 @@
 #a Imports
 from queue import Queue
 from random import Random
-from regress.utils.dprintf      import t_dprintf_req_2, t_dprintf_req_4
-from regress.utils.fifo_status  import t_fifo_status
+from regress.utils  import t_dprintf_req_2, t_dprintf_req_4
+from regress.utils  import t_fifo_status
 from cdl.sim     import ThExecFile
 from cdl.sim     import HardwareThDut
 from cdl.sim     import TestCase
@@ -111,7 +111,8 @@ class FifoTest_Base(ThExecFile):
         self.last_data_being_popped = self.will_pop
         self.bfm_wait(1)
         self.compare_expected("Fifo entries",self.fifo_status__entries_full.value(), self.queue.qsize())
-        self.compare_expected("Fifo entries",self.fifo_status__full.value(), int(self.queue.qsize()==self.fifo_size))
+        self.compare_expected("Fifo space",self.fifo_status__spaces_available.value(), self.fifo_size-self.queue.qsize())
+        self.compare_expected("Fifo full",self.fifo_status__full.value(), int(self.queue.qsize()==self.fifo_size))
         self.data_being_pushed = self.next_data_being_pushed
         self.data_being_popped = self.next_data_being_popped
         self.next_data_being_pushed = None
@@ -170,6 +171,7 @@ class FifoTest_0(FifoTest_Base):
                        (30,  0, 1.0), # Empty
                        ]
     pass
+
 #c FifoTest_1
 class FifoTest_1(FifoTest_Base):
     """

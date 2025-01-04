@@ -17,7 +17,7 @@
 
 #a Imports
 from queue import Queue
-from regress.utils.dprintf import t_dprintf_req_4, t_dprintf_byte
+from regress.utils import t_dprintf_req_4, t_dprintf_byte, Dprintf
 from cdl.utils   import csr
 from cdl.sim     import ThExecFile, LogEventParser
 from cdl.sim     import HardwareThDut
@@ -67,6 +67,8 @@ class DprintfTest_Base(ThExecFile):
         self.spawn(self.checker)
         self.bfm_wait(4)
         for (address, data, result) in self.data_to_test:
+            og = Dprintf(address, bytes(), data).output
+            assert(og == result.encode())
             self.verbose.info("dprintf %04x: %08x %08x %08x %08x expect '%s'"%(address,data[0],data[1],data[2],data[3],result))
             self.string_results.put((address,result))
             self.drive_dprintf_req(address=address, data=data)
