@@ -1,5 +1,17 @@
 # ATCF Utilities
 
+## Clock divider
+
+A clock divider utility module is provided, which generates either a simple divide-by-N (31-bit value) or a fractional divider.
+
+The module takes a t_clock_divider_control input, which allows for writing the configuration of the divider, and controlling its operation (with start and stop). The config 32 bits of write data; if the top bit is clear then the remaining 31-bits provide the value for a divide-by-N counter. If the top bit is asserted (and disable_fractional is deasserted) then a digital differential accumulator (DDA) is used.
+
+The DDA has an accumulator value which is treated as a signed 16-bit value; the configuration has a 15-bit ‘add’ value, and a 15-bit ‘subtract’ value. If the accumulator is positive or zero then the ‘subtract’ value is subtracted from it, and if the accumulator is negative then it has the ‘add’ value added to it. The output clock is enabled in every tick following one in which the accumulator is negative. The result of this is that the output clock enable is asserted for ‘add’ cycles out of every ‘add’ plus ‘subtract’ cycles.
+
+To start the clock divider, the ‘start’ signal should be asserted. Its value is ignored when the divider is running.
+
+To stop a running clock divider, the ‘stop’ signal should be asserted. Its value is ignored while the divider is not running.
+
 ## FIFO modules
 
 Numerous synchronous FIFO modules are provided; they use a standard FIFO status indication, which is the t_fifo_status type.
@@ -9,6 +21,23 @@ Small FIFO implementations can use registers for the contents; larger FIFOs use 
 For more details, see the generic valid ack modules - the FIFOs indicate push with a valid input when ready, and pop when the output data is valid and the client is asserting the output ready signal.
 
 An additional modules is provided, byte_fifo_multiaccess. This has a push interface of a variable number of bytes, and a pop interface of a variable number of bytes. It is designed for systems that parse byte streams (such as the debug script system).
+
+### FIFO status
+
+The common FIFO status type t_fifo_status contains
+
+    bit     pushed;
+    bit     popped;
+    bit     empty;
+    bit     full;
+    bit     overflowed;
+    bit     underflowed;
+    bit[32] entries_full;
+    bit[32] spaces_available;
+
+Pushed and popped are registered indications that the FIFO was pushed or popped; they can be used, for example, to invoke dprintf debug requests to display the fullness of the FIFO.
+
+Empty and full indicate the current state of the FIFO, as do entries_full and spaces_available. Overflowed and underflowed are *sticky* values - they indicate a hardware failure, and if they become set a hardware assertion should be raised.
 
 ## SRAM access modules
 
@@ -183,3 +212,27 @@ The dprintf_4_mux module multiplexes two input requests (round robin) onto an ou
 Thw dprintf_4_fifo_4 is a 4-deep dorintf4 synchronous FIFO; this can help smooth bursts of debug messages should they occur at the same time. The dprintf_4_fifo_512 is an SRAM FIFO that provides even more buffering of messages.
 
 The dprintf_4_async module allows a dprintf request to cross from one clock domain to another (at the rate of one transfer every 3 input and output clock periods.
+
+## Debug master bus
+
+The library provides a pair of buses that allow some form of debug master to access, through a simple byte script, an endpoint such as an APB bus master, a FIFO, or an SRAM. The library really provides the buses and defines the protocol; it also includes two debug endpoints (one for FIFO data and status reading, and one for SRAM reading).
+
+The debug master bus provides a byte stream to the debug endpoint, and the endpoint returns streams of bytes or an error code.
+
+### Debug SRAM access endpoint
+
+The  dbg_master_sram_access takes a debug master request and interprets a byte stream as an opcode byte followed by two bytes encoding an SRAM address, and two bytes encoding a number of ‘entities’ to read. The opcode indicates the size of an ‘entity’ - i.e. the number of bytes of read data from the SRAM should be returned to the debug master as a single ‘entity’.
+
+The opcode byte should be 0 to read N single bytes from successive addresses; it should bef 1 to read N 16-bit values each from successive addresses, and so om up to a value of 7 to read N 64-bit values each from successive addresses.
+
+### Debug FIFO data/status endpoint
+
+
+### Debug master demultiplexer/multiplexer
+
+The dbg_master_mux module takes a debug master request and interprets a *single* byte at the start of each stream as an endpoint select value.
+; it then had four debug master interface to four different endpoints
+             
+
+
+
