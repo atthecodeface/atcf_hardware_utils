@@ -1,6 +1,33 @@
-# ATCF Utilities 
+# ATCF Utilities
 
-## Generic modules
+## FIFO modules
+
+Numerous synchronous FIFO modules are provided; they use a standard FIFO status indication, which is the t_fifo_status type.
+
+Small FIFO implementations can use registers for the contents; larger FIFOs use SRAMs.
+
+For more details, see the generic valid ack modules - the FIFOs indicate push with a valid input when ready, and pop when the output data is valid and the client is asserting the output ready signal.
+
+An additional modules is provided, byte_fifo_multiaccess. This has a push interface of a variable number of bytes, and a pop interface of a variable number of bytes. It is designed for systems that parse byte streams (such as the debug script system).
+
+## SRAM access modules
+
+A standard SRAM control bus is provided, so that SRAMs can conform to a simple standard interface. This does not handle ECC (in the sense of supplying ECC syndromes with the request or the ability to poison the SRAM - the SRAM may itself support ECC by generating syndromes for write data and checking them on read data).
+
+It has valid, 8-bit id, read_not_write, 32-bit address, 64-bit write data, and 8-bit byte emables.
+
+An SRAM access multiplexer module, sram_access_mux_2, provides a simple arbiter between two SRAM access requesters into an SRAM. 
+To distinguish between the read data for the two masters, the ‘id’ fields of the requests (which should appear in SRAM read data responses) can be used.
+
+## Async bus reduction modules
+
+A generic valid-and-data bus reduction module supports taking validated data on one clock and presenting it as valid data on another clock domain.
+
+Instances of this module are named along the line of async_reduce_4_28_r; this takes a 4-bit validated input bus and produces a 28-bit validated output bus on a different clock, with the oldest 4-bit data appearing in the bottom bits (right). The naming scheme is async_reduce_I_O_[lr], for a module that uses the generic_async_reduce module with a single width shift register, an input data bus of width I bits, and an output data bus with a width of O bits. The output clock period must be no more than 3*O/I times the valid input data period (i.e. output clock > input clock * 3I/O.
+
+For uses of the generic module with a double shift register the name would be async_reduce2_I_O_[lr]. This has the constraint that output clock > input clock * 3/2 * I/O
+
+Thus async_reduce2_4_16 with an input clock of 312.5MHz (such as required for GMII) has an output clock requirement (taking 16-bit validated data) of at least 312.5 * 3/8 or about 116MHz.
 
 ### generic_async_reduce
 
@@ -12,9 +39,6 @@ With the shift register set to be the size of the output data, the output data r
 
 A simple example: at an input clock of 10ns (100MHz) and an output clock of 18ns (55MHz) and an input data with of 8 bits, the output data without double shift register is one output data valid every 54ns, rounded up to 60ns (in input clock periods); hence the output data width must be 48bits wide. If a double shift register were used then the output data bus need only be 24 bits wide
 
-The design thus permits a 4-bit input at 312.5MHz (3.2ns period) to transfer to a 125MHz domain (8ns period)
-(clk_out/clk_in periods of 2.5) with a shift register width of 4*3*ceil(8/3.2) or 32 bits; the output data can be 16 bits wide if a double shift register is used.
-
 ## Generic valid ack modules
 
 The standard approach of having data that is passed when it is valid and the receiver is ready is supported with this set of modules. Most are fully syncrhonous.
@@ -23,7 +47,7 @@ The standard approach of having data that is passed when it is valid and the rec
 
 This is a very simple valid/ack synchronized data buffer using a toggle for going between the two clock domains.
 
-The transfer rate is one data item per three to four clock ticks each of both sides.
+The transfer rate is one data item per three to four clock ticks each of both sides (i.e. if the clock periods are 20ns and 70ns, then the data is transferred one transaction every 270ns.
 
 ### generic_valid_ack_double_buffer
 
@@ -35,19 +59,17 @@ As a fifo, it has a fifo_status output.
 
 ### generic_valid_ack_fifo
 
-Very simple synchronous generic register FIFO for a valid/ack system
+Very simple synchronous generic register FIFO for a valid/ack system. It is implemented with a circular buffer of registered entries and read and write pointers; plus there is an output data register.
 
-If the output will be empty then the input data is stored in the output register
-If not empty then the input data is stored in register[write_ptr];
+On a push, if the FIFO will be empty then the input data is stored in the output register; if the FIFO will not be empty then the input data is stored in register[write_ptr].
 
-If not empty and output register will be empty move register[read_ptr] to output register
+If the FIFO is not empty and output register will be empty then the contents of register[read_ptr] is copied to thenoutput register
 
 ### generic_valid_ack_insertion_buffer
 
-A synchronous generic insertion buffer, with 8 outputs of the current buffer contents (including valids)
+This is a synchronous generic insertion buffer, with 8 outputs of the current buffer contents (including valids)
 
-This is a FIFO whose contents are fully visible; the FIFO is implemented by inserting new data directly after the last valid entry, so that the valid contents are presented from output entry 0 upwards.
-
+This is a FIFO whose contents are fully visible; the FIFO is implemented by inserting new data directly after the last valid entry, so that the valid contents are presented from output entry 0 upwards. When the data is read the contents shift down by one entry.
 
 ### generic_valid_ack_mux
 
@@ -75,28 +97,7 @@ consumer another request.
 A deep valid/ack FIFO using a synchronous dual-port SRAM and read/write pointers.
 The module can keep up with a data in per cycle and a data out per cycle.
 
-The SRAM has a read-to-data delay of a cycle, and so two output registers
-must be kept; these are denoted @a req_out and @a pending_req_out.
-
-If both are valid then the SRAM *must not* be reading (not should it
-start a read) as there is nowhere for the data to go.  In this case if
-req_out is being acked, then req_out will come from pending_req_out
-which will become empty. If req_out is not being acked, then both
-registers hold their values. (i.e. hold/hold or pending/empty)
-
-If only one is valid then the SRAM *can* be reading *or* can start a read.
-In particular, if req_out is valid and pending_req_out is not, then:
-  if req_out is acked then it is either from SRAM or empty; else hold/SRAM, or hold/empty
-If req_out is not valid but pending_req_out is, then:
-  req_out comes from pending_req_out; pending_req_out is either empty or SRAM
-
-If neither is valid then an SRAM read can certainly start.
-
-There is a single data register on input to capture the @a req_in.
-This *must* be transfered if valid to the SRAM or one of the output registers,
-unless the SRAM buffer is full.
-
-This permits an @a ack_in unless the @a req_in is valid and the SRAM buffer is full.
+The SRAM must have a read-to-data delay of a cycle.
 
 ## Hysteresis
 
@@ -133,3 +134,52 @@ This permits an @a ack_in unless the @a req_in is valid and the SRAM buffer is f
  * When the output is high and the @a cycles_diff is < -half the filter
  * period the output shifts to low.
 
+## DPrintf modules
+
+The dprintf system provides a means to generate strings of bytes with associated addresses from a ‘printf’-like input. The purpose is to allow hardware to write a debug message such as ‘Addr 0x400 data 0x1234’ onto a textual video buffer, or to a UART.
+
+The core module is the dprintf module itself. This takes a t_dprintf input, which is a validated type with up to 32 bytes of data with a corresponding address. It interprets the bytes one by one, and produces an output byte stream (valid, address, byte, and a ‘last’ byte indicator).
+
+The input 
+byte stream consists of ASCII characters plus potentially ‘video
+control’ characters - all in the range 1 to 127, plus control
+codes of 0 or 128 to 255.
+
+The code 0 is just skipped; it allows for simple alignment of data
+in the dprintf request.
+
+Byte values from 1 to 127 are passed through unchanged.
+
+A code of 128 to 191 is a zero-padded hex format field. The
+encoding is 8h10xxssss; x is unused, and the size ss is 0-f,
+indicating 1 to 16 following nybbles are data (msb first). The
+data follows in the succeeding bytes.
+
+A code of 192 to 254 is a space-padded decimal format field. The
+The encoding is 8h11ppppss; the size is 0-3 for 1 to 4 bytes of
+data, in the succeeding bytes. The padding (pppp) is zero for no
+padding; 1 forces the string to be at least 2 characters long
+(prepadded with space if required); 2 is pad to 3 characters, and
+so on. The maximum padding is to a ten character output (pppp of 9).
+
+A code of 255 terminates the string.
+
+As the dprintf request is a valid-ack interface, the numerous generic FIFO and arbiter modules can be used to buffer and select from multiple masters; the sources of the dprintf requests tend to be very simple logic such as:
+
+   if (dp_req_1.valid && dp_req_1_ack) {
+     dp_req_1.valid <- 0;
+   }
+   if (event…) {
+     dp_req_1.valid <= 1;
+     dp_req_1.address <= 64;
+     dp_req_1.data_0 <= 64h_48656c6c6f2083;
+     dp_req_1.data_1 <= bundle(event_addr[0; 16], 8hff, 40b0);
+   }
+
+This will produce an output byte stream of “Hello ABCD” if the event_addr is 0xABCD.
+
+The dprintf_4_mux module multiplexes two input requests (round robin) onto an output.
+
+Thw dprintf_4_fifo_4 is a 4-deep dorintf4 synchronous FIFO; this can help smooth bursts of debug messages should they occur at the same time. The dprintf_4_fifo_512 is an SRAM FIFO that provides even more buffering of messages.
+
+The dprintf_4_async module allows a dprintf request to cross from one clock domain to another (at the rate of one transfer every 3 input and output clock periods.
