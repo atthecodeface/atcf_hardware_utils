@@ -14,12 +14,16 @@ class DprintfModules(cdl_desc.Modules):
     cdl_include_dirs = ["cdl"]
     export_dirs      = cdl_include_dirs + [ src_dir ]
     modules = []
-    modules += [ CdlModule("async_reduce2_4_28_l",constants={"input_width":4,"output_width":28, "shift_right":0, "double_sr":1}, cdl_filename="generic_async_reduce") ]
-    modules += [ CdlModule("async_reduce2_4_28_r",constants={"input_width":4,"output_width":28, "shift_right":1, "double_sr":1}, cdl_filename="generic_async_reduce") ]
+
+    modules += [ CdlModule("async_reduce_4_16_l",constants={"input_width":4,"output_width":16, "shift_right":0, "double_sr":0}, cdl_filename="generic_async_reduce") ]
     modules += [ CdlModule("async_reduce_4_28_l", constants={"input_width":4,"output_width":28, "shift_right":0, "double_sr":0}, cdl_filename="generic_async_reduce") ]
     modules += [ CdlModule("async_reduce_4_28_r", constants={"input_width":4,"output_width":28, "shift_right":1, "double_sr":0}, cdl_filename="generic_async_reduce") ]
     modules += [ CdlModule("async_reduce_4_60_l", constants={"input_width":4,"output_width":60, "shift_right":0, "double_sr":0}, cdl_filename="generic_async_reduce") ]
     modules += [ CdlModule("async_reduce_4_60_r", constants={"input_width":4,"output_width":60, "shift_right":1, "double_sr":0}, cdl_filename="generic_async_reduce") ]
+
+    modules += [ CdlModule("async_reduce2_4_16_l",constants={"input_width":4,"output_width":16, "shift_right":0, "double_sr":1}, cdl_filename="generic_async_reduce") ]
+    modules += [ CdlModule("async_reduce2_4_28_l",constants={"input_width":4,"output_width":28, "shift_right":0, "double_sr":1}, cdl_filename="generic_async_reduce") ]
+    modules += [ CdlModule("async_reduce2_4_28_r",constants={"input_width":4,"output_width":28, "shift_right":1, "double_sr":1}, cdl_filename="generic_async_reduce") ]
 
     for (fifo_depth,bpa) in [(12,4), (16,4), (24,8)]:
         modules += [ CdlModule("byte_fifo_multiaccess_%d_%d"%(fifo_depth, bpa),
