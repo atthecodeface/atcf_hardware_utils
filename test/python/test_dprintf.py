@@ -69,7 +69,7 @@ class DprintfTest_Base(ThExecFile):
         for (address, data, result) in self.data_to_test:
             og = Dprintf(address, bytes(), data).output
             assert(og == result.encode())
-            self.verbose.info("dprintf %04x: %08x %08x %08x %08x expect '%s'"%(address,data[0],data[1],data[2],data[3],result))
+            self.verbose.warning("dprintf %04x: %08x %08x %08x %08x expect '%s'"%(address,data[0],data[1],data[2],data[3],result))
             self.string_results.put((address,result))
             self.drive_dprintf_req(address=address, data=data)
             pass

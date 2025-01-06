@@ -93,7 +93,8 @@ class DprintfTest_Base(ThExecFile):
         self.dprintf.invalid()
         self.bfm_wait(4)
         script_num = 1
-        for (srams,data,script,exp_c,exp_d) in self.data_and_scripts_to_run:
+        for (reason,srams,data,script,exp_c,exp_d) in self.data_and_scripts_to_run:
+            self.verbose.warning(reason)
             for s in srams:
                 self.perform_sram_req(s)
                 pass
@@ -123,7 +124,8 @@ class DprintfTest_Base(ThExecFile):
 #c DprintfTest_0
 class DprintfTest_0(DprintfTest_Base):
     data_and_scripts_to_run = [
-       ([],
+       ("Dprintf 16 characters, read FIFO status and check it has 515 slots with 1 full",
+        [],
         [ Dprintf(0x0, b"abcdefghijklmnop"),
          ],
         FifoScript(["status"]),
@@ -131,7 +133,8 @@ class DprintfTest_0(DprintfTest_Base):
         [FifoStatus(515,1).as_dbg_master_fifo_status(),
          ]
         ),
-       ([],
+       ("Dprintf 16 characters, read FIFO status (four times) and check it has 515 slots with 2 full",
+        [],
         [Dprintf(0x0, b"abcdefghijklmnop"),
          ],
         FifoScript(["status","status","status","status"]),
@@ -142,7 +145,8 @@ class DprintfTest_0(DprintfTest_Base):
          FifoStatus(515,2).as_dbg_master_fifo_status(),
          ]
         ),
-       ([],
+       ("Read one entry of 64 bits of FIFO data (abcdefgh) and then check status has 515 slots with 1 full",
+        [],
         [],
         FifoScript([("read",64,1), "status"]),
         "ok",
@@ -150,21 +154,24 @@ class DprintfTest_0(DprintfTest_Base):
          FifoStatus(515,1).as_dbg_master_fifo_status(),
          ]
         ),
-       ([],
+       ("Read two entries of 64 bits of FIFO data (abcdefgh), only one of which is present",
+        [],
         [],
         FifoScript([("read",64,2), "status"]),
         "ok",
         [0x65666768, 0x61626364,
          ]
         ),
-       ([],
+       ("Read two entries of 64 bits of FIFO data (abcdefgh), none of which are present",
+        [],
         [],
         FifoScript([("read",64,2), "status"]),
         "ok",
         [
          ]
         ),
-       ([],
+       ("Read with error if not ready two entries of 64 bits of FIFO data (abcdefgh), none of which are present",
+        [],
         [],
         FifoScript([("read_err",64,2), "status"]),
         "poll_failed",
@@ -177,7 +184,8 @@ class DprintfTest_0(DprintfTest_Base):
 #c DprintfTest_1
 class DprintfTest_1(DprintfTest_Base):
     data_and_scripts_to_run = [
-       ([],
+       ("Dprintf 10 times then read FIFO status of 515 slots and 10 full",
+        [],
         [ Dprintf(0x0, b"abcdefg1andmore"),
           Dprintf(0x0, b"abcdefg2andmore"),
           Dprintf(0x0, b"abcde3g3andmore"),
@@ -194,7 +202,8 @@ class DprintfTest_1(DprintfTest_Base):
         [FifoStatus(515,10).as_dbg_master_fifo_status(),
          ]
         ),
-       ([],
+       ("Read FIFO data 1 byte, 2 bytes, 3 bytes, then 4 bytes, then status of 515 slots and 6 full",
+        [],
         [],
         FifoScript([("read",8,1),
                              ("read",16,1),
@@ -206,7 +215,8 @@ class DprintfTest_1(DprintfTest_Base):
          FifoStatus(515,6).as_dbg_master_fifo_status(),
          ]
         ),
-       ([],
+       ("Read FIFO data 5 bytes, 6 bytess, 7 bytes, then 8 bytes, then status of 515 slots and 2 full",
+        [],
         [],
         FifoScript([("read",40,1),
                              ("read",48,1),
@@ -229,7 +239,8 @@ class SramTest_0(DprintfTest_Base):
     # Provide a delay between SRAM writes to allow dprintf's to occur
     sram_inter_delay = 2
     data_and_scripts_to_run = [
-       ([SramAccessWrite(0,0,0x12345678,0xffff)],
+       ("Write SRAM[0] with 0x12345678, then read SRAM 1 entry, four times, one as 32-bit, then 24-bit, then 16-bit, then 8-bit",
+        [SramAccessWrite(0,0,0x12345678,0xffff)],
         [],
         SramScript([("read",32,0,1),
                     ("read",24,0,1),
@@ -240,7 +251,8 @@ class SramTest_0(DprintfTest_Base):
         [0x12345678, 0x345678, 0x5678, 0x78
          ]
         ),
-       ([SramAccessWrite(0,d,d*0x01020201,0xffff) for d in [1,2,3,4,5,6,7,8]],
+       ("Write SRAM[1-8] with 16-bits of known data, then read 9 SRAM entries, four times, first as 32-bit, then 24-bit, then 16-bit, then 8-bit",
+        [SramAccessWrite(0,d,d*0x01020201,0xffff) for d in [1,2,3,4,5,6,7,8]],
         [],
         SramScript([("read",32,0,9),
                     ("read",24,0,9),
@@ -254,7 +266,8 @@ class SramTest_0(DprintfTest_Base):
          0x78, 1,2,3,4,5,6,7,8,
          ]
         ),
-       ([],
+       ("Read FIFO status of 515 slots with 5+8+9*4 entries as each SRAM access does a 'dprintf' which goes into the dprintf FIFO",
+        [],
         [],
         FifoScript(["status"]),
         "ok",

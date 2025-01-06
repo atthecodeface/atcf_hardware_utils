@@ -52,10 +52,10 @@ class FifoTest_Base(ThExecFile):
     rnd_some = lambda rand: rand.choice([0,1,2,3,4,5,6,7,8])
     rnd_many = lambda rand: rand.choice([0,0,2,4,4,5,5,6,6,7,7,8])
     rnd_all = lambda rand: 8
-    test_stages = [(10,  rnd_many, rnd_few), # Fill it up
-                   (300, rnd_some, rnd_some), # Consume stuff
-                   (30,  rnd_few, rnd_all), # Empty
-                   (30,  rnd_none, rnd_all), # Empty
+    test_stages = [("Base Reason Fill", 10,  rnd_many, rnd_few), # Fill it up
+                   ("Base Reason Consume", 300, rnd_some, rnd_some), # Consume stuff
+                   ("Base Reason Empty", 30,  rnd_few, rnd_all), # Empty
+                   ("Base Reason Finish", 30,  rnd_none, rnd_all), # Empty
                    ]
     def __init__(self, fifo_size=None, **kwargs) -> None:
         if fifo_size is not None: self.fifo_size=fifo_size
@@ -140,7 +140,8 @@ class FifoTest_Base(ThExecFile):
         self.pop_random.seed(self.pop_random_seed)
         self.last_data_being_pushed = 0
         self.last_data_being_popped = 0
-        for (length, push_rnd, pop_rnd) in self.test_stages:
+        for (reason, length, push_rnd, pop_rnd) in self.test_stages:
+            self.verbose.warning(reason)
             for i in range(length):
                 data_popped = self.generate_fifo_input(push_rnd(self.push_random),pop_rnd(self.pop_random))
                 self.fifo_accounting_tick(data_popped)
@@ -153,7 +154,7 @@ class FifoTest_Base(ThExecFile):
         pass
     #f run__finalize
     def run__finalize(self) -> None:
-        self.verbose.error("%d"%self.global_cycle())
+        self.verbose.warning("Completed after %d cycles"%self.global_cycle())
         self.passtest("Test completed")
         pass
     pass
@@ -167,10 +168,10 @@ class FifoTest_24_8_long(FifoTest_Base):
     rnd_some = lambda rand: rand.choice([0,1,2,3,4,5,6,7,8])
     rnd_many = lambda rand: rand.choice([0,0,2,4,4,5,5,6,6,7,7,8])
     rnd_all = lambda rand: 8
-    test_stages = [(100,  rnd_many, rnd_few), # Fill it up
-                   (3000, rnd_some, rnd_some), # Consume stuff
-                   (300,  rnd_few, rnd_all), # Empty
-                   (300,  rnd_none, rnd_all), # Empty
+    test_stages = [("Fill 24_8_long by push many, pop few", 100,  rnd_many, rnd_few), # Fill it up
+                   ("Push some, pop some", 3000, rnd_some, rnd_some), # Consume stuff
+                   ("Empty with push few, pop all", 300,  rnd_few, rnd_all), # Empty
+                   ("Empty finally with only pop", 300,  rnd_none, rnd_all), # Empty
                    ]
     pass
 
@@ -183,10 +184,10 @@ class FifoTest_4_long(FifoTest_Base):
     rnd_some = lambda rand: rand.choice([0,1,2,3,4])
     rnd_many = lambda rand: rand.choice([0,1,2,2,3,4,4,4,4])
     rnd_all = lambda rand: 4
-    test_stages = [(100,  rnd_many, rnd_few), # Fill it up
-                   (3000, rnd_some, rnd_some), # Consume stuff
-                   (300,  rnd_few, rnd_all), # Empty
-                   (300,  rnd_none, rnd_all), # Empty
+    test_stages = [("Fill 4_long by push many, pop few", 100,  rnd_many, rnd_few), # Fill it up
+                   ("Push some, pop some", 3000, rnd_some, rnd_some), # Consume stuff
+                   ("Empty with push few, pop all", 300,  rnd_few, rnd_all), # Empty
+                   ("Empty finally with only pop", 300,  rnd_none, rnd_all), # Empty
                    ]
     pass
 
