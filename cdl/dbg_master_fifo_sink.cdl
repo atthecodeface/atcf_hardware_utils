@@ -54,8 +54,10 @@ typedef enum [4] {
     fifo_ctrl_action_none,
     fifo_ctrl_action_start,
     fifo_ctrl_action_do_status,
-    fifo_ctrl_action_do_pop,
     fifo_ctrl_action_read_status,
+    fifo_ctrl_action_capture_pop_req,
+    fifo_ctrl_action_wait_for_pop_data_valid,
+    fifo_ctrl_action_pop_capture_data,
     fifo_ctrl_action_read_data,
     fifo_ctrl_action_read_data_gap,
     fifo_ctrl_action_read_data_gap_last_more_words,
@@ -81,6 +83,13 @@ typedef fsm {
     fifo_ctrl_fsm_reading_status {
         fifo_ctrl_fsm_wait_for_op
     }     "Capturing the fifo_status as 32-bit data, then back to the next op";
+    fifo_ctrl_fsm_req_pop {
+        fifo_ctrl_fsm_wait_for_pop_data_valid,
+        fifo_ctrl_fsm_data
+    }     "Requesting pop of data";
+    fifo_ctrl_fsm_wait_for_pop_data_valid {
+        fifo_ctrl_fsm_data
+    }     "Requesting pop of data";
     fifo_ctrl_fsm_data {
         fifo_ctrl_fsm_data_gap
     }     "";
@@ -149,14 +158,16 @@ typedef struct {
 /*a Module */
 module dbg_master_fifo_sink( clock clk,
                              input bit reset_n    "Active low reset",
-                             input t_dbg_master_request    dbg_master_req  "Request from the client to execute from an address in the ROM",
+                             input t_dbg_master_request    dbg_master_req  "Request from the client to execute a debug script instruction",
                              output t_dbg_master_response  dbg_master_resp "Response to the client acknowledging a request",
                              input t_fifo_status fifo_status,
+                             input bit data_valid "May occur in the same cycle as pop_fifo & pop_rdy OR later; can often be tied to !empty",
                              input bit[64] data0,
                              input bit[64] data1,
                              input bit[64] data2,
                              input bit[64] data3,
-                             output bit pop_fifo
+                             input bit pop_rdy "Must be independent of pop_fifo output, indicates a pop_fifo would be taken",
+                             output bit pop_fifo "Must be deasserted if a pop is taken but data_valid is not asserted; can be reasserted once data_valid has become asserted"
     )
 """
 Debug script is opcode of (2,6) [24]:
@@ -291,17 +302,18 @@ Debug script is opcode of (2,6) [24]:
             if (fifo_ctrl_combs.has_required_bytes) {
                 if (fifo_ctrl_combs.opcode_is_status) {
                     fifo_ctrl_combs.action = fifo_ctrl_action_do_status;
+                    fifo_ctrl_combs.bytes_consumed = fifo_ctrl_combs.bytes_required;
                 } elsif (fifo_ctrl_state.fifo_status.empty) {
+                    fifo_ctrl_combs.bytes_consumed = fifo_ctrl_combs.bytes_required;
                     fifo_ctrl_combs.completed = 1;
                     if (fifo_ctrl_combs.err_on_empty) {
                         fifo_ctrl_combs.action = fifo_ctrl_action_complete_poll_failed;
                         fifo_ctrl_combs.poll_failed = 1;
                     }
                 } else {
-                    fifo_ctrl_combs.action = fifo_ctrl_action_do_pop;
-                    fifo_ctrl_combs.pop_fifo = 1;
+                    fifo_ctrl_combs.action = fifo_ctrl_action_capture_pop_req;
+                    fifo_ctrl_combs.bytes_consumed = fifo_ctrl_combs.bytes_required;
                 }
-                fifo_ctrl_combs.bytes_consumed = fifo_ctrl_combs.bytes_required;
             } elsif (dbg_if_state.data_is_last) {
                 if (dbg_if_state.num_data_valid == 0) {
                     fifo_ctrl_combs.completed = 1;
@@ -316,6 +328,20 @@ Debug script is opcode of (2,6) [24]:
         }
         case fifo_ctrl_fsm_reading_status: {
             fifo_ctrl_combs.action = fifo_ctrl_action_read_status;
+        }
+        case fifo_ctrl_fsm_req_pop: {
+            fifo_ctrl_combs.pop_fifo = 1;
+            if (pop_rdy) {
+                fifo_ctrl_combs.action = fifo_ctrl_action_wait_for_pop_data_valid;
+                if (data_valid) {
+                    fifo_ctrl_combs.action = fifo_ctrl_action_pop_capture_data;
+                }
+            }
+        }
+        case fifo_ctrl_fsm_wait_for_pop_data_valid: {
+            if (data_valid) {
+                fifo_ctrl_combs.action = fifo_ctrl_action_pop_capture_data;
+            }
         }
         case fifo_ctrl_fsm_data: {
             fifo_ctrl_combs.action = fifo_ctrl_action_read_data;
@@ -334,7 +360,6 @@ Debug script is opcode of (2,6) [24]:
                     }
                 } else {
                     fifo_ctrl_combs.action = fifo_ctrl_action_read_data_gap_last_more_words;
-                    fifo_ctrl_combs.pop_fifo = 1;
                 }
             }
         }
@@ -369,12 +394,18 @@ Debug script is opcode of (2,6) [24]:
             }
                                            
         }
-        case fifo_ctrl_action_do_pop: {
-            fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_data;
+        case fifo_ctrl_action_capture_pop_req: {
+            fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_req_pop;
             fifo_ctrl_state.err_on_empty <= fifo_ctrl_combs.err_on_empty;
             fifo_ctrl_state.count <= fifo_ctrl_combs.opcode_data_size;
             fifo_ctrl_state.byte_count <= fifo_ctrl_combs.opcode_data_size;
             fifo_ctrl_state.word_count <= fifo_ctrl_combs.num_data;
+        }
+        case fifo_ctrl_action_wait_for_pop_data_valid: {
+            fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_wait_for_pop_data_valid;
+        }
+        case fifo_ctrl_action_pop_capture_data: {
+            fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_data;
             fifo_ctrl_state.data[0] <= data0[32;0];
             fifo_ctrl_state.data[1] <= data0[32;32];
             fifo_ctrl_state.data[2] <= data1[32;0];
@@ -399,15 +430,7 @@ Debug script is opcode of (2,6) [24]:
         case fifo_ctrl_action_read_data_gap_last_more_words: {
             fifo_ctrl_state.count <= fifo_ctrl_state.byte_count;
             fifo_ctrl_state.word_count <= fifo_ctrl_state.word_count - 1;
-            fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_data;
-            fifo_ctrl_state.data[0] <= data0[32;0];
-            fifo_ctrl_state.data[1] <= data0[32;32];
-            fifo_ctrl_state.data[2] <= data1[32;0];
-            fifo_ctrl_state.data[3] <= data1[32;32];
-            fifo_ctrl_state.data[4] <= data2[32;0];
-            fifo_ctrl_state.data[5] <= data2[32;32];
-            fifo_ctrl_state.data[6] <= data3[32;0];
-            fifo_ctrl_state.data[7] <= data3[32;32];
+            fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_req_pop;
         }
         case fifo_ctrl_action_read_data_gap_last: {
             fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_wait_for_op;

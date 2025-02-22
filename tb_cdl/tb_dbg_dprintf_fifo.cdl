@@ -49,9 +49,14 @@ module tb_dbg_dprintf_fifo( clock clk,
 
     comb t_dbg_master_response resp_none;
 
+    comb bit dbg_pop_rdy;
+    comb bit dprintf_fifo_out_data_valid;
+
     /*b Instantiations */
     instantiations: {
         resp_none = {*=0};
+        dbg_pop_rdy = 1;
+        dprintf_fifo_out_data_valid = 1;
 
         dprintf_4_mux dpf_mux( clk <- clk,
                        reset_n <= reset_n,
@@ -91,6 +96,8 @@ module tb_dbg_dprintf_fifo( clock clk,
                                   data1 <= dprintf_fifo_out_req.data_1,
                                   data2 <= dprintf_fifo_out_req.data_2,
                                   data3 <= dprintf_fifo_out_req.data_3,
+                                  pop_rdy <= dbg_pop_rdy,
+                                  data_valid <= dprintf_fifo_out_data_valid,
                                   pop_fifo => dbg_pop_fifo
             );
 

@@ -17,6 +17,19 @@
  */
 /*a Types */
 /*t t_fifo_status
+ *
+ * Should add methods for:
+ *
+ * fn fifo_status32(addr:bit[3]) -> bit[32] { }
+ *
+ * Perhaps a FifoStatus data trait with methods for these, plus a number of bits of entries?
+ *
+ *  fifo_ctrl_data.data <=  bundle( fifo_ctrl_state.fifo_status.spaces_available[14;0],
+ *                                  fifo_ctrl_state.fifo_status.entries_full[14;0],
+ *                                  fifo_ctrl_state.fifo_status.overflowed,
+ *                                  fifo_ctrl_state.fifo_status.underflowed,
+ *                                  fifo_ctrl_state.fifo_status.full,
+ *                                  fifo_ctrl_state.fifo_status.empty );
  */
 typedef struct {
     bit     pushed;
