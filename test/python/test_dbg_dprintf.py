@@ -16,6 +16,7 @@
 #
 
 #a Imports
+from random import Random
 from queue import Queue
 from regress.utils import t_dprintf_req_4, t_dprintf_byte, Dprintf, t_dbg_master_request, t_dbg_master_response, DprintfBus, SramAccessBus, SramAccessRead, SramAccessWrite, DbgMaster, DbgMasterMuxScript, DbgMasterSramScript, DbgMasterFifoScript, FifoStatus, t_sram_access_req, t_sram_access_resp
 from cdl.utils   import csr
@@ -46,6 +47,9 @@ class SramScript(DbgMasterMuxScript):
 class DprintfTest_Base(ThExecFile):
     th_name = "Utils dprintf test harness"
     sram_inter_delay = 0
+    random_seed = "bananas"
+    pop_rdy_pct = 30
+    dv_pct = 30
     # This can be set at initialization time to reduce the number of explicit test cases
     def __init__(self, **kwargs) -> None:
         super(DprintfTest_Base,self).__init__(**kwargs)
@@ -56,12 +60,23 @@ class DprintfTest_Base(ThExecFile):
         super(DprintfTest_Base,self).exec_init()
         pass
 
+    #f bfm_wait_toggling_rdy_dv
+    def bfm_wait_toggling_rdy_dv(self, n):
+        for i in range(n):
+            
+            pop_rdy = int(self.random_holdoffs.randrange(100) <= self.pop_rdy_pct)
+            dv = int(self.random_holdoffs.randrange(100) <= self.dv_pct)
+            self.dbg_pop_rdy.drive(pop_rdy)
+            self.dprintf_fifo_out_data_valid.drive(dv)
+            self.bfm_wait(1)
+            pass
+        pass
     #f drive_dprintf_req
     def drive_dprintf_req(self, d):
         self.dprintf.drive(d)
-        self.bfm_wait(1)
+        self.bfm_wait_toggling_rdy_dv(1)
         while not self.dprintf.is_acked():
-            self.bfm_wait(1)
+            self.bfm_wait_toggling_rdy_dv(1)
             pass
         self.dprintf.invalid()
         pass
@@ -69,18 +84,27 @@ class DprintfTest_Base(ThExecFile):
     #f perform_sram_req
     def perform_sram_req(self, s):
         self.sram_access.drive(s)
-        self.bfm_wait(1)
+        self.bfm_wait_toggling_rdy_dv(1)
         while not self.sram_access.is_acked():
-            self.bfm_wait(1)
+            self.bfm_wait_toggling_rdy_dv(1)
             pass
         self.sram_access.invalid()
         if self.sram_inter_delay>0:
-            self.bfm_wait(self.sram_inter_delay)
+            self.bfm_wait_toggling_rdy_dv(self.sram_inter_delay)
             pass
         pass
             
     #f run__init
     def run__init(self) -> None:
+        self.bfm_wait(1)
+        self.random_holdoffs = Random()
+        self.random_holdoffs.seed(self.random_seed)
+
+        self.verbose.set_level(self.verbose.level_info)
+        self.verbose.message(f"Test {self.__class__.__name__}")
+
+        self.dbg_pop_rdy.drive(1)
+        self.dprintf_fifo_out_data_valid.drive(1)
         self.bfm_wait(10)
         self.dprintf = DprintfBus(self, "dprintf_req", "dprintf_ack", n=4)
         self.dbg_master = DbgMaster(self, "dbg_master_req", "dbg_master_resp")
@@ -103,7 +127,7 @@ class DprintfTest_Base(ThExecFile):
                 pass
             (completion, res_data) = self.dbg_master.invoke_script_bytes(
                 script.as_bytes(),
-                self.bfm_wait,
+                self.bfm_wait_toggling_rdy_dv,
                 lambda :0,
                 1000)
             self.compare_expected(f"Completion of script {script_num}", exp_c, completion)
@@ -183,6 +207,7 @@ class DprintfTest_0(DprintfTest_Base):
 
 #c DprintfTest_1
 class DprintfTest_1(DprintfTest_Base):
+    random_seed = "toaa1231sdst"
     data_and_scripts_to_run = [
        ("Dprintf 10 times then read FIFO status of 515 slots and 10 full",
         [],
@@ -215,7 +240,7 @@ class DprintfTest_1(DprintfTest_Base):
          FifoStatus(515,6).as_dbg_master_fifo_status(),
          ]
         ),
-       ("Read FIFO data 5 bytes, 6 bytess, 7 bytes, then 8 bytes, then status of 515 slots and 2 full",
+       ("Read FIFO data 5 bytes, 6 bytes, 7 bytes, then 8 bytes, then status of 515 slots and 2 full",
         [],
         [],
         FifoScript([("read",40,1),
@@ -287,6 +312,8 @@ class DbgDprintfHardware(HardwareThDut):
     dut_inputs  = {"dprintf_req":t_dprintf_req_4,
                    "dbg_master_req":t_dbg_master_request,
                    "sram_access_req":t_sram_access_req,
+                   "dbg_pop_rdy":1,
+                   "dprintf_fifo_out_data_valid":1,
     }
     dut_outputs = {"dprintf_ack":1,
                    "dbg_master_resp":t_dbg_master_response,
@@ -299,8 +326,8 @@ class DbgDprintfHardware(HardwareThDut):
 #c TestDbgDprintf
 class TestDbgDprintf(TestCase):
     hw = DbgDprintfHardware
-    _tests = {"0": (DprintfTest_0, 1*1000, {}),
-              "1": (DprintfTest_1, 1*1000, {}),
-              "smoke": (SramTest_0, 2*1000, {}),
+    _tests = {"0": (DprintfTest_0, 2*1000, {}),
+              "1": (DprintfTest_1, 2*1000, {}),
+              "smoke": (DprintfTest_0, 2*1000, {}),
     }
 

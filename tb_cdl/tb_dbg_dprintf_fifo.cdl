@@ -14,7 +14,10 @@ module tb_dbg_dprintf_fifo( clock clk,
                             input t_dbg_master_request dbg_master_req,
                             output t_dbg_master_response dbg_master_resp,
                             input t_sram_access_req sram_access_req,
-                            output t_sram_access_resp sram_access_resp
+                            output t_sram_access_resp sram_access_resp,
+
+                            input bit dbg_pop_rdy,
+                            input bit dprintf_fifo_out_data_valid
 )
 {
 
@@ -48,15 +51,25 @@ module tb_dbg_dprintf_fifo( clock clk,
     clocked bit sram_did_read = 0;
 
     comb t_dbg_master_response resp_none;
-
-    comb bit dbg_pop_rdy;
-    comb bit dprintf_fifo_out_data_valid;
+    clocked bit pop_pending = 0;
+    comb bit do_pop_fifo;
 
     /*b Instantiations */
     instantiations: {
         resp_none = {*=0};
-        dbg_pop_rdy = 1;
-        dprintf_fifo_out_data_valid = 1;
+        do_pop_fifo = 0;
+
+        if (pop_pending && dprintf_fifo_out_data_valid) {
+            pop_pending <= 0;
+            do_pop_fifo = 1;
+        }
+        if (dbg_pop_fifo && dbg_pop_rdy) {
+            if (dprintf_fifo_out_data_valid) {
+                do_pop_fifo = 1;
+            } else {
+                pop_pending <= 1;
+            }
+        }
 
         dprintf_4_mux dpf_mux( clk <- clk,
                        reset_n <= reset_n,
@@ -72,7 +85,7 @@ module tb_dbg_dprintf_fifo( clock clk,
                                  req_in <= dprintf_req_mux,
                                  ack_in => dprintf_ack_mux,
                                  req_out => dprintf_fifo_out_req,
-                                 ack_out <= dbg_pop_fifo,
+                                 ack_out <= do_pop_fifo,
                                  fifo_status => dprintf_fifo_status );
 
         dbg_master_mux mux( clk <- clk,
@@ -97,7 +110,7 @@ module tb_dbg_dprintf_fifo( clock clk,
                                   data2 <= dprintf_fifo_out_req.data_2,
                                   data3 <= dprintf_fifo_out_req.data_3,
                                   pop_rdy <= dbg_pop_rdy,
-                                  data_valid <= dprintf_fifo_out_data_valid,
+                                  data_valid <= dprintf_fifo_out_data_valid & !dprintf_fifo_status.empty,
                                   pop_fifo => dbg_pop_fifo
             );
 
