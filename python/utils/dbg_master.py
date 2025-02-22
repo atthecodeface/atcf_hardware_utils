@@ -40,7 +40,7 @@ class DbgMasterMuxScript:
         self.subscript = subscript
         pass
     def as_bytes(self) -> bytes:
-        r = self.subscript.as_bytes()
+        r = bytearray(self.subscript.as_bytes())
         if self.clear:
             r.insert(0,128 + self.select)
             pass

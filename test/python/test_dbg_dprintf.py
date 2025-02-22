@@ -71,6 +71,7 @@ class DprintfTest_Base(ThExecFile):
             self.bfm_wait(1)
             pass
         pass
+
     #f drive_dprintf_req
     def drive_dprintf_req(self, d):
         self.dprintf.drive(d)
