@@ -20,6 +20,7 @@
  */
 /*a Includes */
 include "debug.h"
+include "fifo_sink.h"
 include "fifo_status.h"
 
 /*a Types */
