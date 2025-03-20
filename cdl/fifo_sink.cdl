@@ -195,6 +195,7 @@ are given on the *first* read (with set_counts asserted).
     fsm_actions """
     Perform the actions of the state machine
     """: {
+        fifo_resp.valid <= 0;
         fifo_resp.bytes_valid <= 0;
         full_switch (ctrl_combs.action) {
         case fifo_ctrl_action_completed: {
@@ -231,9 +232,9 @@ are given on the *first* read (with set_counts asserted).
             ctrl_state.fsm_state <= fifo_ctrl_fsm_req_pop;
             ctrl_state.bytes_remaining <= ctrl_state.byte_count;
             if (fifo_sink_ctrl.set_counts) {
-                ctrl_state.byte_count <= fifo_sink_ctrl.byte_count;
-                ctrl_state.bytes_remaining <= fifo_sink_ctrl.byte_count;
-                ctrl_state.word_count <= fifo_sink_ctrl.word_count;
+                ctrl_state.byte_count <= fifo_sink_ctrl.byte_count + 1;
+                ctrl_state.bytes_remaining <= fifo_sink_ctrl.byte_count + 1;
+                ctrl_state.word_count <= fifo_sink_ctrl.word_count + 1;
             }
         }
         case fifo_ctrl_action_wait_for_pop_data_valid: {
@@ -290,6 +291,7 @@ are given on the *first* read (with set_counts asserted).
             // but it must be presented in the next cycle
             ctrl_state.fsm_state <= fifo_ctrl_fsm_completed;
             fifo_resp.valid <= 1;
+            fifo_resp.bytes_valid <= 0;
             fifo_resp.empty <= 1;
             fifo_resp.last_word <= 1;
             fifo_resp.last_byte_of_word <= 1;

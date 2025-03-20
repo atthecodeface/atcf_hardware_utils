@@ -22,6 +22,7 @@
 include "debug.h"
 include "fifo_sink.h"
 include "fifo_status.h"
+include "fifo_modules.h"
 
 /*a Types */
 /*t t_dbg_if_action
@@ -55,17 +56,11 @@ typedef enum [4] {
     fifo_ctrl_action_none,
     fifo_ctrl_action_start,
     fifo_ctrl_action_do_status,
-    fifo_ctrl_action_read_status,
     fifo_ctrl_action_capture_pop_req,
-    fifo_ctrl_action_wait_for_pop_data_valid,
-    fifo_ctrl_action_pop_capture_data,
-    fifo_ctrl_action_read_data,
-    fifo_ctrl_action_read_data_gap,
-    fifo_ctrl_action_read_data_gap_last_more_words,
-    fifo_ctrl_action_read_data_gap_last,
-    fifo_ctrl_action_complete_okay         "Enter complete state with okay completion",
-    fifo_ctrl_action_complete_errored      "Enter complete state with errored completion",
-    fifo_ctrl_action_complete_poll_failed  "Enter complete state with polling failed completion",
+    fifo_ctrl_action_request_next_data,
+    fifo_ctrl_action_take_next_data,
+    fifo_ctrl_action_take_last_data,
+    fifo_ctrl_action_complete "Completed; the combs 'poll_failed' and 'errored' indicate failures"
 } t_fifo_ctrl_action;
 
 /*t t_fifo_ctrl_fsm_state
@@ -78,19 +73,15 @@ typedef fsm {
     }     "Fifo_Ctrl idle - waiting to start";
     fifo_ctrl_fsm_wait_for_op {
         fifo_ctrl_fsm_idle,
-        fifo_ctrl_fsm_reading_status,
+        fifo_ctrl_fsm_request_next_data
+    }     "Waiting for a byte-code op - or end of data - will send initial request to FIFO sink";
+    fifo_ctrl_fsm_request_next_data {
+        fifo_ctrl_fsm_wait_for_data,
         fifo_ctrl_fsm_data
-    }     "Waiting for a byte-code op - or end of data";
-    fifo_ctrl_fsm_reading_status {
-        fifo_ctrl_fsm_wait_for_op
-    }     "Capturing the fifo_status as 32-bit data, then back to the next op";
-    fifo_ctrl_fsm_req_pop {
-        fifo_ctrl_fsm_wait_for_pop_data_valid,
-        fifo_ctrl_fsm_data
-    }     "Requesting pop of data";
-    fifo_ctrl_fsm_wait_for_pop_data_valid {
-        fifo_ctrl_fsm_data
-    }     "Requesting pop of data";
+    }     "Sending read_data action to FIFO sink";
+    fifo_ctrl_fsm_wait_for_data {
+        fifo_ctrl_fsm_request_next_data
+    }     "Waiting for FIFO sink to provide resp.valid";
     fifo_ctrl_fsm_data {
         fifo_ctrl_fsm_data_gap
     }     "";
@@ -110,11 +101,6 @@ typedef fsm {
 typedef struct {
     t_fifo_ctrl_fsm_state fsm_state   "Fifo_Ctrl FSM state machine state";
     bit err_on_empty "Asserted if pop of empty fifo shoud fail poll; clear if it should just stop"; 
-    bit[6] count;
-    bit[6] byte_count;
-    bit[16] word_count;
-    bit[32][8] data;
-    t_fifo_status fifo_status;
 } t_fifo_ctrl_state;
 
 /*t t_fifo_ctrl_combs
@@ -139,22 +125,10 @@ typedef struct {
     bit[2] bytes_consumed;
     bit has_required_bytes;
 
-    bit[3] read_data_bytes_valid;
-
-    bit pop_fifo;
     bit completed;
     bit poll_failed;
     bit errored;
 } t_fifo_ctrl_combs;
-
-/*t t_fifo_ctrl_data
- *
- * Data to be returned in the dbg response
- */
-typedef struct {
-    bit[32] data;
-    bit[3] bytes_valid;
-} t_fifo_ctrl_data;
 
 /*a Module */
 module dbg_master_fifo_sink( clock clk,
@@ -194,10 +168,12 @@ Debug script is opcode of (2,6) [24]:
     comb t_dbg_if_action dbg_if_action;
     clocked t_dbg_if_state dbg_if_state = {*=0};
 
-    comb t_fifo_ctrl_combs           fifo_ctrl_combs       "Combinatorial decode of ROM state";
-    clocked t_fifo_ctrl_state        fifo_ctrl_state={*=0}                                      "State of the ROM-side; request and ROM access";
+    comb t_fifo_ctrl_combs    fifo_ctrl_combs       "Combinatorial decode of ROM state";
+    clocked t_fifo_ctrl_state fifo_ctrl_state={*=0} "State of the ROM-side; request and ROM access";
 
-    clocked t_fifo_ctrl_data fifo_ctrl_data = {*=0};
+    comb t_fifo_sink_ctrl fifo_sink_ctrl;
+    net bit pop_fifo;
+    net t_fifo_sink_response fifo_resp;
 
     /*b Script interface logic */
     script_interface_logic """
@@ -257,8 +233,12 @@ Debug script is opcode of (2,6) [24]:
             dbg_master_resp.resp_type = dbg_resp_running;
         }
         dbg_master_resp.bytes_consumed = bundle(2b0, fifo_ctrl_combs.bytes_consumed);
-        dbg_master_resp.bytes_valid = fifo_ctrl_data.bytes_valid;
-        dbg_master_resp.data        = fifo_ctrl_data.data;
+        dbg_master_resp.bytes_valid = fifo_resp.bytes_valid;
+        dbg_master_resp.data        = fifo_resp.data;
+        if (!fifo_resp.valid) {
+            dbg_master_resp.bytes_valid = 0;
+            dbg_master_resp.data        = 0;
+        }
 
         /*b All done */
     }
@@ -293,7 +273,6 @@ Debug script is opcode of (2,6) [24]:
         /*b Determine script action */
         fifo_ctrl_combs.action = fifo_ctrl_action_none;
         fifo_ctrl_combs.bytes_consumed = 0;
-        fifo_ctrl_combs.pop_fifo = 0;
         full_switch (fifo_ctrl_state.fsm_state) {
         case fifo_ctrl_fsm_idle: {
             if (dbg_if_action == dbg_if_action_start) {
@@ -305,161 +284,100 @@ Debug script is opcode of (2,6) [24]:
                 if (fifo_ctrl_combs.opcode_is_status) {
                     fifo_ctrl_combs.action = fifo_ctrl_action_do_status;
                     fifo_ctrl_combs.bytes_consumed = fifo_ctrl_combs.bytes_required;
-                } elsif (fifo_ctrl_state.fifo_status.empty) {
-                    fifo_ctrl_combs.bytes_consumed = fifo_ctrl_combs.bytes_required;
-                    fifo_ctrl_combs.completed = 1;
-                    if (fifo_ctrl_combs.err_on_empty) {
-                        fifo_ctrl_combs.action = fifo_ctrl_action_complete_poll_failed;
-                        fifo_ctrl_combs.poll_failed = 1;
-                    }
                 } else {
-                    fifo_ctrl_combs.action = fifo_ctrl_action_capture_pop_req;
                     fifo_ctrl_combs.bytes_consumed = fifo_ctrl_combs.bytes_required;
+                    fifo_sink_ctrl.action = fifo_sink_action_idle;
+                    fifo_sink_ctrl.set_counts = 0;
+                    fifo_sink_ctrl.byte_count = 0;
+                    fifo_sink_ctrl.word_count = 0;
+                    fifo_ctrl_combs.action = fifo_ctrl_action_capture_pop_req;
+                    if (fifo_ctrl_combs.err_on_empty) {
+                    }
                 }
             } elsif (dbg_if_state.data_is_last) {
                 if (dbg_if_state.num_data_valid == 0) {
-                    fifo_ctrl_combs.completed = 1;
                     fifo_ctrl_combs.errored = 0;
-                    fifo_ctrl_combs.action = fifo_ctrl_action_complete_okay;
+                    fifo_ctrl_combs.action = fifo_ctrl_action_complete;
                 } else {
-                    fifo_ctrl_combs.completed = 1;
                     fifo_ctrl_combs.errored = 1;
-                    fifo_ctrl_combs.action = fifo_ctrl_action_complete_errored;
+                    fifo_ctrl_combs.action = fifo_ctrl_action_complete;
                 }
             }
         }
-        case fifo_ctrl_fsm_reading_status: {
-            fifo_ctrl_combs.action = fifo_ctrl_action_read_status;
-        }
-        case fifo_ctrl_fsm_req_pop: {
-            fifo_ctrl_combs.pop_fifo = 1;
-            if (pop_rdy) {
-                fifo_ctrl_combs.action = fifo_ctrl_action_wait_for_pop_data_valid;
-                if (data_valid) {
-                    fifo_ctrl_combs.action = fifo_ctrl_action_pop_capture_data;
+        case fifo_ctrl_fsm_wait_for_data: {
+            if (fifo_resp.valid) {
+                fifo_ctrl_combs.action = fifo_ctrl_action_take_next_data;
+                if (fifo_resp.last_word) {
+                    fifo_ctrl_combs.action = fifo_ctrl_action_take_last_data;
+                }
+                if (fifo_resp.empty) {
+                    fifo_ctrl_combs.action = fifo_ctrl_action_complete;
+                    fifo_ctrl_combs.poll_failed = fifo_ctrl_state.err_on_empty;
                 }
             }
         }
-        case fifo_ctrl_fsm_wait_for_pop_data_valid: {
-            if (data_valid) {
-                fifo_ctrl_combs.action = fifo_ctrl_action_pop_capture_data;
-            }
+        case fifo_ctrl_fsm_request_next_data: {
+            fifo_ctrl_combs.action = fifo_ctrl_action_request_next_data;
         }
-        case fifo_ctrl_fsm_data: {
-            fifo_ctrl_combs.action = fifo_ctrl_action_read_data;
-        }
-        case fifo_ctrl_fsm_data_gap: {
-            fifo_ctrl_combs.action = fifo_ctrl_action_read_data_gap;
-            if (fifo_ctrl_state.count < 4) {
-                if (fifo_ctrl_state.word_count == 0) {
-                    fifo_ctrl_combs.action = fifo_ctrl_action_read_data_gap_last;
-                } elsif (fifo_ctrl_state.fifo_status.empty) {
-                    fifo_ctrl_combs.completed = 1;
-                    fifo_ctrl_combs.action = fifo_ctrl_action_complete_okay;
-                    if (fifo_ctrl_state.err_on_empty) {
-                        fifo_ctrl_combs.poll_failed = 1;
-                        fifo_ctrl_combs.action = fifo_ctrl_action_complete_poll_failed;
-                    }
-                } else {
-                    fifo_ctrl_combs.action = fifo_ctrl_action_read_data_gap_last_more_words;
-                }
-            }
-        }
-        }
-        fifo_ctrl_combs.read_data_bytes_valid = 4;
-        if (fifo_ctrl_state.count < 4) {
-            fifo_ctrl_combs.read_data_bytes_valid = fifo_ctrl_state.count[3;0]+1;
         }
 
-        fifo_ctrl_data.bytes_valid <= 0;
+        fifo_sink_ctrl.action = fifo_sink_action_idle;
+        fifo_sink_ctrl.set_counts = 0;
+        fifo_sink_ctrl.byte_count = 0;
+        fifo_sink_ctrl.word_count = 0;
         full_switch (fifo_ctrl_combs.action) {
         case fifo_ctrl_action_start: {
             fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_wait_for_op;
         }
         case fifo_ctrl_action_do_status: {
-            fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_reading_status;
-        }
-        case fifo_ctrl_action_read_status: {
-            fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_wait_for_op;
-            fifo_ctrl_data.bytes_valid <= 4;
-            fifo_ctrl_data.data <=  bundle( fifo_ctrl_state.fifo_status.spaces_available[14;0],
-                                            fifo_ctrl_state.fifo_status.entries_full[14;0],
-                                            fifo_ctrl_state.fifo_status.overflowed,
-                                            fifo_ctrl_state.fifo_status.underflowed,
-                                            fifo_ctrl_state.fifo_status.full,
-                                            fifo_ctrl_state.fifo_status.empty );
-            if (fifo_ctrl_state.fifo_status.spaces_available >= 0x4000) {
-                fifo_ctrl_data.data[14;18] <= -1;
-            }
-            if (fifo_ctrl_state.fifo_status.entries_full >= 0x4000) {
-                fifo_ctrl_data.data[14;4] <= -1;
-            }
-                                           
+            fifo_sink_ctrl.action = fifo_sink_action_get_status;
+            fifo_ctrl_state.err_on_empty <= 0;
+            fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_wait_for_data;
         }
         case fifo_ctrl_action_capture_pop_req: {
-            fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_req_pop;
+            fifo_sink_ctrl.action = fifo_sink_action_read_data;
+            fifo_sink_ctrl.set_counts = 1;
+            fifo_sink_ctrl.byte_count = fifo_ctrl_combs.opcode_data_size;
+            fifo_sink_ctrl.word_count = fifo_ctrl_combs.num_data;
             fifo_ctrl_state.err_on_empty <= fifo_ctrl_combs.err_on_empty;
-            fifo_ctrl_state.count <= fifo_ctrl_combs.opcode_data_size;
-            fifo_ctrl_state.byte_count <= fifo_ctrl_combs.opcode_data_size;
-            fifo_ctrl_state.word_count <= fifo_ctrl_combs.num_data;
+            fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_wait_for_data;
         }
-        case fifo_ctrl_action_wait_for_pop_data_valid: {
-            fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_wait_for_pop_data_valid;
+        case fifo_ctrl_action_request_next_data: {
+            fifo_sink_ctrl.action = fifo_sink_action_read_data;
+            fifo_sink_ctrl.set_counts = 0;
+            fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_wait_for_data;
         }
-        case fifo_ctrl_action_pop_capture_data: {
-            fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_data;
-            fifo_ctrl_state.data[0] <= data0[32;0];
-            fifo_ctrl_state.data[1] <= data0[32;32];
-            fifo_ctrl_state.data[2] <= data1[32;0];
-            fifo_ctrl_state.data[3] <= data1[32;32];
-            fifo_ctrl_state.data[4] <= data2[32;0];
-            fifo_ctrl_state.data[5] <= data2[32;32];
-            fifo_ctrl_state.data[6] <= data3[32;0];
-            fifo_ctrl_state.data[7] <= data3[32;32];
-        }
-        case fifo_ctrl_action_read_data: {
-            fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_data_gap;
-            fifo_ctrl_data.bytes_valid <= fifo_ctrl_combs.read_data_bytes_valid;
-            fifo_ctrl_data.data <= fifo_ctrl_state.data[0];
-        }
-        case fifo_ctrl_action_read_data_gap: {
-            fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_data;
-            fifo_ctrl_state.count <= fifo_ctrl_state.count - 4;
-            for (i;7) {
-                fifo_ctrl_state.data[i] <= fifo_ctrl_state.data[i+1];
-            }
-        }
-        case fifo_ctrl_action_read_data_gap_last_more_words: {
-            fifo_ctrl_state.count <= fifo_ctrl_state.byte_count;
-            fifo_ctrl_state.word_count <= fifo_ctrl_state.word_count - 1;
-            fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_req_pop;
-        }
-        case fifo_ctrl_action_read_data_gap_last: {
+        case fifo_ctrl_action_take_last_data: {
             fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_wait_for_op;
         }
-        case fifo_ctrl_action_complete_okay: {
-            fifo_ctrl_data.bytes_valid <= 0;
-            fifo_ctrl_data.data <= 0;
-            fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_idle;
+        case fifo_ctrl_action_take_next_data: {
+            fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_request_next_data;
         }
-        case fifo_ctrl_action_complete_poll_failed: {
-            fifo_ctrl_data.bytes_valid <= 0;
-            fifo_ctrl_data.data <= 0;
-            fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_idle;
-        }
-        case fifo_ctrl_action_complete_errored: {
-            fifo_ctrl_data.bytes_valid <= 0;
-            fifo_ctrl_data.data <= 0;
+        case fifo_ctrl_action_complete: {
+            fifo_ctrl_combs.completed = 1;
             fifo_ctrl_state.fsm_state <= fifo_ctrl_fsm_idle;
         }
         case fifo_ctrl_action_none: {
             fifo_ctrl_state.fsm_state <= fifo_ctrl_state.fsm_state;
         }
         }
-        pop_fifo = fifo_ctrl_combs.pop_fifo;
-        if (fifo_ctrl_state.fsm_state !=fifo_ctrl_fsm_idle) {
-            fifo_ctrl_state.fifo_status <= fifo_status;
-        }
+    }
+
+    /*b Instantiate Fifo sink */
+    instantiate_fifo: {
+        fifo_sink sink( clk <- clk, reset_n <= reset_n,
+                        fifo_sink_ctrl <= fifo_sink_ctrl,
+                        fifo_resp => fifo_resp,
+                        fifo_status <= fifo_status,
+                        data_valid <= data_valid,
+                        data0 <= data0,
+                        data1 <= data1,
+                        data2 <= data2,
+                        data3 <= data3,
+                        data4 <= data4,
+                        pop_fifo => pop_fifo,
+                        pop_rdy <= pop_rdy
+            );
     }
 
     /*b All done */
