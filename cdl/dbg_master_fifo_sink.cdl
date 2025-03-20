@@ -166,6 +166,7 @@ module dbg_master_fifo_sink( clock clk,
                              input bit[64] data1,
                              input bit[64] data2,
                              input bit[64] data3,
+                             input bit[64] data4,
                              input bit pop_rdy "Must be independent of pop_fifo output, indicates a pop_fifo would be taken",
                              output bit pop_fifo "Must be deasserted if a pop is taken but data_valid is not asserted; can be reasserted once data_valid has become asserted"
     )

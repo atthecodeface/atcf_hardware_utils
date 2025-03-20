@@ -109,6 +109,7 @@ module tb_dbg_dprintf_fifo( clock clk,
                                   data1 <= dprintf_fifo_out_req.data_1,
                                   data2 <= dprintf_fifo_out_req.data_2,
                                   data3 <= dprintf_fifo_out_req.data_3,
+                                  data4 <= bundle(48b0, dprintf_fifo_out_req.address),
                                   pop_rdy <= dbg_pop_rdy,
                                   data_valid <= dprintf_fifo_out_data_valid & !dprintf_fifo_status.empty,
                                   pop_fifo => dbg_pop_fifo

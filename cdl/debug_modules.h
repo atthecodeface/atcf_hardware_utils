@@ -38,13 +38,14 @@ module dbg_master_fifo_sink( clock clk,
                              input bit[64] data1,
                              input bit[64] data2,
                              input bit[64] data3,
+                             input bit[64] data4,
                              input bit pop_rdy "Must be independent of pop_fifo output, indicates a pop_fifo would be taken",
                              output bit pop_fifo
     )
 {
     timing to   rising clock clk dbg_master_req;
     timing from rising clock clk dbg_master_resp;
-    timing to   rising clock clk fifo_status, data0, data1, data2, data3, data_valid, pop_rdy;
+    timing to   rising clock clk fifo_status, data0, data1, data2, data3, data4, data_valid, pop_rdy;
     timing from rising clock clk pop_fifo;
 }
 
