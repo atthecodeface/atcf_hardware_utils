@@ -21,7 +21,7 @@ class FifoStatus:
         self.empty = self.entries_full == 0
         self.full = self.entries_full == self.size
         pass        
-    def as_dbg_master_fifo_status(self) -> int:
+    def as_csr32(self) -> int:
         r = 0
         if self.empty: r += 1
         if self.full: r += 2
@@ -40,6 +40,8 @@ class FifoStatus:
             r += (self.spaces_available & 0x3fff) << 18
             pass
         return r
+    def as_dbg_master_fifo_status(self) -> int:
+        return self.as_csr32()
     def push(self):
         if self.full:
             self.overflowed = True

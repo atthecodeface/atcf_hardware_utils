@@ -25,6 +25,7 @@ from cdl.sim     import HardwareThDut
 from cdl.sim     import TestCase
 from typing import Optional
 
+#a FifoScript
 #c FifoScript
 class FifoScript(DbgMasterMuxScript):
     select = 1
@@ -43,6 +44,7 @@ class SramScript(DbgMasterMuxScript):
         pass
     pass
 
+#a DprintfTest
 #c DprintfTest_Base
 class DprintfTest_Base(ThExecFile):
     th_name = "Utils dprintf test harness"
@@ -179,7 +181,7 @@ class DprintfTest_0(DprintfTest_Base):
          FifoStatus(515,1).as_dbg_master_fifo_status(),
          ]
         ),
-       ("Read two entries of 64 bits of FIFO data (abcdefgh), only one of which is present",
+       ("Read two entries of 64 bits of FIFO data (abcdefgh), only one of which is present; should poll failed",
         [],
         [],
         FifoScript([("read",64,2), "status"]),

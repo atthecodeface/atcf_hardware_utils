@@ -1,0 +1,307 @@
+/*a Includes */
+include "debug.h"
+include "fifo_sink.h"
+include "fifo_status.h"
+
+/*a Types */
+/*t t_fifo_ctrl_action
+ *
+ * Action that the FIFO FSM ctrl is taking, based on the FSM state and the opcode etc
+ */
+typedef enum [4] {
+    fifo_ctrl_action_none,
+    fifo_ctrl_action_read_status,
+    fifo_ctrl_action_read_empty,
+    fifo_ctrl_action_read_next_data,
+    fifo_ctrl_action_capture_pop_req,
+    fifo_ctrl_action_wait_for_pop_data_valid,
+    fifo_ctrl_action_pop_capture_data,
+    fifo_ctrl_action_completed
+} t_fifo_ctrl_action;
+
+/*t t_fifo_ctrl_fsm_state
+ *
+ * Fifo_Ctrl FSM states
+ */
+typedef fsm {
+    fifo_ctrl_fsm_idle  {
+        fifo_ctrl_fsm_idle,
+        fifo_ctrl_fsm_completed,
+        fifo_ctrl_fsm_data
+    }     "Waiting for a byte-code op - or end of data";
+    fifo_ctrl_fsm_req_pop {
+        fifo_ctrl_fsm_wait_for_pop_data_valid,
+        fifo_ctrl_fsm_data
+    }     "Requesting pop of data";
+    fifo_ctrl_fsm_wait_for_pop_data_valid {
+        fifo_ctrl_fsm_data
+    }     "Requested pop of data, waiting for data valid";
+    fifo_ctrl_fsm_data {
+        fifo_ctrl_fsm_completed
+    }     "Data has become valid";
+    fifo_ctrl_fsm_completed {
+        fifo_ctrl_fsm_idle
+    }     "Data is being presented, and can move to next (sub)transaction";
+} t_fifo_ctrl_fsm_state;
+
+/*t t_ctrl_state
+ *
+ * State for the ROM side of the fifo_ctrl - effectively program
+ * counter and the data read from the ROM - plus an indication that
+ * the fifo_ctrl is idle.
+ *
+ * Fifo_Ctrl execution state; FSM and APB address, accumulator and repeat count
+ */
+typedef struct {
+    t_fifo_ctrl_fsm_state fsm_state   "Fifo_Ctrl FSM state machine state";
+    bit[6] bytes_remaining;
+    bit[6] byte_count;
+    bit[16] word_count;
+    bit[32][10] data;
+} t_ctrl_state;
+
+/*t t_ctrl_combs
+ *
+ * Combinatorial signals decoded from the @a script_state - basically the ROM read request
+ *
+ * Combinatorial decode of the script state, used to control the ROM state and the APB state machine
+ */
+typedef struct {
+    t_fifo_ctrl_action action        "Action that the script should take";
+
+    bit pop_fifo;
+} t_ctrl_combs;
+
+/*t t_fifo_ctrl_data
+ *
+ * Data to be returned in the dbg response
+ */
+typedef struct {
+    bit[32] data;
+    bit[3] bytes_valid;
+} t_fifo_ctrl_data;
+
+/*a Module */
+module fifo_sink( clock clk,
+                             input bit reset_n    "Active low reset",
+                             input t_fifo_sink_ctrl fifo_sink_ctrl,
+                             output t_fifo_sink_response fifo_resp,
+                             input t_fifo_status fifo_status,
+                             input bit data_valid "May occur in the same cycle as pop_fifo & pop_rdy OR later; can often be tied to !empty",
+                             input bit[64] data0,
+                             input bit[64] data1,
+                             input bit[64] data2,
+                             input bit[64] data3,
+                             input bit[64] data4,
+                             input bit pop_rdy "Must be independent of pop_fifo output, indicates a pop_fifo would be taken",
+                             output bit pop_fifo "Must be deasserted if a pop is taken but data_valid is not asserted; can be reasserted once data_valid has become asserted"
+    )
+"""
+
+This module provides simple 'pop' and 'status' access to a FIFO in a
+manner that can be used by APB or dbg targets
+
+It takes an action that is either 'get_status' or 'read_data'.
+
+For getting the status, a 32-bit data value is prepared and presented
+on the following cycle, with data_valid and 4 bytes valid.
+
+For reading data, a number of bytes-per-FIFO-data and words-of-FIFO
+are given on the *first* read (with set_counts asserted).
+
+* If the FIFO is empty then a valid data response is presented with zero bytes of data valid.
+
+* If the FIFO is not empty then pop_fifo will be asserted; when
+  pop_rdy is also asserted in the same cycle the pop_fifo will be
+  deasserted in the next cycle (so pop_rdy can be tied high for simple
+  scenarios); in the same cycle as pop_rdy, or in a *later* cycle, the
+  data_valid should be asserted with valid data popped from the
+  FIFO. (At this point the status should be updated to reflect the
+  pop).
+
+* When data has been read from the FIFO it is stored in internal
+  registers; it is presented up to 4-bytes per cycle. If the last data
+  of the last word is being presented then 'last' will be asserted
+  too.
+
+* Data is automatically fetched for repeated reads - 
+
+"""
+{
+    /*b Clock and reset */
+    default clock clk;
+    default reset active_low reset_n;
+
+    comb t_ctrl_combs     ctrl_combs       "Combinatorial decode FSM state";
+    clocked t_ctrl_state  ctrl_state={*=0} "State of the FSM etc";
+
+    clocked t_fifo_sink_response fifo_resp = {*=0};
+
+    /*b Fifo state machine */
+    fifo_state_machine """
+    State machine for the FIFO interface
+    """: {
+
+        /*b Defaults */
+        ctrl_combs.action = fifo_ctrl_action_none;
+        ctrl_combs.pop_fifo = 0;
+
+        /*b Determine script action */
+        full_switch (ctrl_state.fsm_state) {
+        case fifo_ctrl_fsm_idle: {
+            full_switch (fifo_sink_ctrl.action) {
+            case fifo_sink_action_get_status:  {
+                ctrl_combs.action = fifo_ctrl_action_read_status;
+            }
+            case fifo_sink_action_read_data: {
+                if (ctrl_state.bytes_remaining != 0) {
+                    ctrl_combs.action = fifo_ctrl_action_read_next_data;
+                } elsif (fifo_status.empty) {
+                    ctrl_combs.action = fifo_ctrl_action_read_empty;
+                } else {
+                    ctrl_combs.action = fifo_ctrl_action_capture_pop_req;
+                }
+            }
+            default: {
+                ctrl_combs.action = fifo_ctrl_action_none;
+            }
+            }
+        }
+        case fifo_ctrl_fsm_req_pop: {
+            ctrl_combs.pop_fifo = 1;
+            if (pop_rdy) {
+                ctrl_combs.action = fifo_ctrl_action_wait_for_pop_data_valid;
+                if (data_valid) {
+                    ctrl_combs.action = fifo_ctrl_action_pop_capture_data;
+                }
+            }
+        }
+        case fifo_ctrl_fsm_wait_for_pop_data_valid: {
+            if (data_valid) {
+                ctrl_combs.action = fifo_ctrl_action_pop_capture_data;
+            }
+        }
+        case fifo_ctrl_fsm_data: {
+            ctrl_combs.action = fifo_ctrl_action_read_next_data;
+        }
+        case fifo_ctrl_fsm_completed: {
+            ctrl_combs.action = fifo_ctrl_action_completed;
+        }
+        }
+        pop_fifo = ctrl_combs.pop_fifo;
+    }
+
+    /*b Fifo FSM action handling */
+    fsm_actions """
+    Perform the actions of the state machine
+    """: {
+        fifo_resp.valid <= 0;
+        fifo_resp.bytes_valid <= 0;
+        full_switch (ctrl_combs.action) {
+        case fifo_ctrl_action_completed: {
+            // Completed a transaction, and data is valid in the
+            // response in *this* cycle
+            ctrl_state.fsm_state <= fifo_ctrl_fsm_idle;
+        }
+        case fifo_ctrl_action_read_status: {
+            // Fifo status is valid and must be presented in the next
+            // cycle
+            ctrl_state.fsm_state <= fifo_ctrl_fsm_completed;
+            fifo_resp.valid <= 1;
+            fifo_resp.bytes_valid <= 4;
+            fifo_resp.empty <= fifo_status.empty;
+            fifo_resp.last_word <= 1;
+            fifo_resp.last_byte_of_word <= 1;
+            fifo_resp.data <=  bundle( fifo_status.spaces_available[14;0],
+                                            fifo_status.entries_full[14;0],
+                                            fifo_status.overflowed,
+                                            fifo_status.underflowed,
+                                            fifo_status.full,
+                                            fifo_status.empty );
+            if (fifo_status.spaces_available >= 0x4000) {
+                fifo_resp.data[14;18] <= -1;
+            }
+            if (fifo_status.entries_full >= 0x4000) {
+                fifo_resp.data[14;4] <= -1;
+            }
+        }
+        case fifo_ctrl_action_capture_pop_req: {
+            // In next state drive 'pop_fifo' and wait for 'pop_rdy'
+            //
+            // Capture the length of data now
+            ctrl_state.fsm_state <= fifo_ctrl_fsm_req_pop;
+            ctrl_state.bytes_remaining <= ctrl_state.byte_count;
+            if (fifo_sink_ctrl.set_counts) {
+                ctrl_state.byte_count <= fifo_sink_ctrl.byte_count + 1;
+                ctrl_state.bytes_remaining <= fifo_sink_ctrl.byte_count + 1;
+                ctrl_state.word_count <= fifo_sink_ctrl.word_count + 1;
+            }
+        }
+        case fifo_ctrl_action_wait_for_pop_data_valid: {
+            // Asserting 'pop_fifo' and 'pop_rdy' is asserted, but 'data_valid' is not
+            //
+            // Move to stop driving 'pop_fifo' but wait for 'data_valid'
+            ctrl_state.fsm_state <= fifo_ctrl_fsm_wait_for_pop_data_valid;
+        }
+        case fifo_ctrl_action_pop_capture_data: {
+            // 'data_valid' is asserted in response to a 'pop_fifo'
+            ctrl_state.fsm_state <= fifo_ctrl_fsm_data;
+            ctrl_state.data[0] <= data0[32;0];
+            ctrl_state.data[1] <= data0[32;32];
+            ctrl_state.data[2] <= data1[32;0];
+            ctrl_state.data[3] <= data1[32;32];
+            ctrl_state.data[4] <= data2[32;0];
+            ctrl_state.data[5] <= data2[32;32];
+            ctrl_state.data[6] <= data3[32;0];
+            ctrl_state.data[7] <= data3[32;32];
+            ctrl_state.data[8] <= data4[32;0];
+            ctrl_state.data[9] <= data4[32;32];
+        }
+        case fifo_ctrl_action_read_next_data: {
+            // Data in the state is valid and must be presented in the next
+            // cycle
+            ctrl_state.fsm_state <= fifo_ctrl_fsm_completed;
+            fifo_resp.valid <= 1;
+            fifo_resp.data <= ctrl_state.data[0];
+            fifo_resp.empty <= 0;
+            fifo_resp.last_word <= 0;
+            fifo_resp.last_byte_of_word <= 0;
+            if (ctrl_state.bytes_remaining <= 4) {
+                fifo_resp.bytes_valid <= ctrl_state.bytes_remaining[3;0];
+                fifo_resp.last_byte_of_word <= 1;
+                if (ctrl_state.word_count <= 1) {
+                    fifo_resp.last_word <= 1;
+                }
+            } else {
+                fifo_resp.bytes_valid <= 4;
+            }
+ 
+            for (i;7) {
+                ctrl_state.data[i] <= ctrl_state.data[i+1];
+            }
+            if (ctrl_state.bytes_remaining <= 4) {
+                ctrl_state.bytes_remaining <= 0;
+                ctrl_state.word_count <= ctrl_state.word_count - 1;
+            } else {
+                ctrl_state.bytes_remaining <= ctrl_state.bytes_remaining - 4;
+            }
+        }
+        case fifo_ctrl_action_read_empty: {
+            // Fifo empty when asking for a read; no data to present,
+            // but it must be presented in the next cycle
+            ctrl_state.fsm_state <= fifo_ctrl_fsm_completed;
+            fifo_resp.valid <= 1;
+            fifo_resp.bytes_valid <= 0;
+            fifo_resp.empty <= 1;
+            fifo_resp.last_word <= 1;
+            fifo_resp.last_byte_of_word <= 1;
+        }
+        case fifo_ctrl_action_none: {
+            ctrl_state.fsm_state <= ctrl_state.fsm_state;
+        }
+        }
+
+    }
+
+    /*b All done */
+}

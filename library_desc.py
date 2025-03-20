@@ -84,6 +84,8 @@ class DprintfModules(cdl_desc.Modules):
                                            },
                            cdl_filename="generic_valid_ack_sram_fifo") ]
 
+    modules += [ CdlModule("fifo_sink") ]
+
     modules += [ CdlModule("dbg_master_mux") ]
     modules += [ CdlModule("dbg_master_fifo_sink") ]
     modules += [ CdlModule("dbg_master_sram_access") ]
