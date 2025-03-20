@@ -1,4 +1,5 @@
 include "fifo_sink.h"
+include "fifo_status.h"
 extern module fifo_sink( clock clk,
                              input bit reset_n    "Active low reset",
                              input t_fifo_sink_ctrl fifo_sink_ctrl,
