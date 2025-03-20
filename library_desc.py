@@ -14,12 +14,16 @@ class DprintfModules(cdl_desc.Modules):
     cdl_include_dirs = ["cdl"]
     export_dirs      = cdl_include_dirs + [ src_dir ]
     modules = []
-    modules += [ CdlModule("async_reduce2_4_28_l",constants={"input_width":4,"output_width":28, "shift_right":0, "double_sr":1}, cdl_filename="generic_async_reduce") ]
-    modules += [ CdlModule("async_reduce2_4_28_r",constants={"input_width":4,"output_width":28, "shift_right":1, "double_sr":1}, cdl_filename="generic_async_reduce") ]
+
+    modules += [ CdlModule("async_reduce_4_16_l",constants={"input_width":4,"output_width":16, "shift_right":0, "double_sr":0}, cdl_filename="generic_async_reduce") ]
     modules += [ CdlModule("async_reduce_4_28_l", constants={"input_width":4,"output_width":28, "shift_right":0, "double_sr":0}, cdl_filename="generic_async_reduce") ]
     modules += [ CdlModule("async_reduce_4_28_r", constants={"input_width":4,"output_width":28, "shift_right":1, "double_sr":0}, cdl_filename="generic_async_reduce") ]
     modules += [ CdlModule("async_reduce_4_60_l", constants={"input_width":4,"output_width":60, "shift_right":0, "double_sr":0}, cdl_filename="generic_async_reduce") ]
     modules += [ CdlModule("async_reduce_4_60_r", constants={"input_width":4,"output_width":60, "shift_right":1, "double_sr":0}, cdl_filename="generic_async_reduce") ]
+
+    modules += [ CdlModule("async_reduce2_4_16_l",constants={"input_width":4,"output_width":16, "shift_right":0, "double_sr":1}, cdl_filename="generic_async_reduce") ]
+    modules += [ CdlModule("async_reduce2_4_28_l",constants={"input_width":4,"output_width":28, "shift_right":0, "double_sr":1}, cdl_filename="generic_async_reduce") ]
+    modules += [ CdlModule("async_reduce2_4_28_r",constants={"input_width":4,"output_width":28, "shift_right":1, "double_sr":1}, cdl_filename="generic_async_reduce") ]
 
     for (fifo_depth,bpa) in [(12,4), (16,4), (24,8)]:
         modules += [ CdlModule("byte_fifo_multiaccess_%d_%d"%(fifo_depth, bpa),
@@ -45,12 +49,17 @@ class DprintfModules(cdl_desc.Modules):
                            instance_types={"fifo_status":"fifo_status_3"},
                            cdl_filename="generic_valid_ack_double_buffer") ]
     modules += [ CdlModule("dprintf_4_double_buffer",
-                           force_includes=["dprintf.h"], # Fifo module has depth 4 as it has an output register and the FIFO internally of depth 3
+                           force_includes=["dprintf.h"],
                            types={"gt_generic_valid_req":"t_dprintf_req_4"},
                            instance_types={"fifo_status":"fifo_status_3"},
                            cdl_filename="generic_valid_ack_double_buffer") ]
-    modules += [ CdlModule("dprintf_2_fifo_4",
+    modules += [ CdlModule("dprintf_4_double_buffer_rate_limit",
                            force_includes=["dprintf.h"],
+                           types={"gt_generic_valid_req":"t_dprintf_req_4"},
+                           instance_types={"fifo_status":"fifo_status_3"},
+                           cdl_filename="generic_valid_ack_double_buffer_rate_limit") ]
+    modules += [ CdlModule("dprintf_2_fifo_4",
+                           force_includes=["dprintf.h"], # Fifo module has depth 4 as it has an output register and the FIFO internally of depth 3
                            types={"gt_generic_valid_req":"t_dprintf_req_2"},
                            instance_types={"fifo_status":"fifo_status_7"},
                            constants={"fifo_depth":4},

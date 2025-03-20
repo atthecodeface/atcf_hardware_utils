@@ -141,6 +141,7 @@ class FifoTest_Base(ThExecFile):
         self.next_data_being_pushed = None
         self.next_data_being_popped = False
         for (length, push_chance, pop_chance) in self.test_stages:
+            self.verbose.warning(f"Fifo test stage {length}, {push_chance}, {pop_chance}")
             for i in range(length):
                 self.generate_fifo_input(push_chance,pop_chance)
                 self.fifo_accounting_tick()
@@ -153,7 +154,7 @@ class FifoTest_Base(ThExecFile):
         pass
     #f run__finalize
     def run__finalize(self) -> None:
-        self.verbose.error("%d"%self.global_cycle())
+        self.verbose.warning("Test completed after %d cycles"%self.global_cycle())
         self.passtest("Test completed")
         pass
     pass

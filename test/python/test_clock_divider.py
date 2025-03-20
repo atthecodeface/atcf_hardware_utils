@@ -91,6 +91,7 @@ class ClockDividerTest_Base(ThExecFile):
     #f run
     def run(self) -> None:
         for (adder, subtractor, fractional_mode, measure_periods, divider_clock_period) in self.clock_test_data:
+            self.verbose.warning(f"Run clock divider {adder}, {subtractor}, {fractional_mode}, {measure_periods}, {divider_clock_period}")
             if fractional_mode==0 or not self.enable_fractional:
                 if subtractor!=0: raise Exception("Bug - subtractor must be 0 if not fractional")
                 pass
@@ -98,6 +99,7 @@ class ClockDividerTest_Base(ThExecFile):
             self.start()
             period = self.measure(measure_periods)
             err = abs(period-divider_clock_period)/divider_clock_period
+            self.verbose.warning(f"Measured period {period} with error {err}")
             if err>0.01:
                 self.failtest("Clock rate for %d/%d/%d exceeded 1%% error rate (got %f, expected %f)"%
                               (adder, subtractor, fractional_mode, period, divider_clock_period))

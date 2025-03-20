@@ -34,6 +34,7 @@ typedef bit[shift_register_width] t_sr;
 /*t t_data_in_state */
 typedef struct {
     bit[counter_size] counter;
+    bit not_post_reset;
     t_sr shift_register;
     t_sr data_out;
     bit  data_valid_toggle;
@@ -73,14 +74,17 @@ occurs on clk_out at up to a whole clk_out period later; the second flop of the 
 occurs up to two clk_out periods later; the data is captured on the next edge (when sync != last
 toggle) - i.e. three clk_out periods later.
 
-Hence the design works if clk_out period*3 is less than clk_in period * shift_register_width/input_width.
+Hence with a single shift register:
 
-A shift register which is double the size of the output_width can meet this too.
+  output clock must be greater than the input clock * 3 * input_width / output_width
+
+And with a double shift register:
+
+  output clock must be greater than the input clock * 3/2 * input_width / output_width
 
 This permits a 4-bit input at 312.5MHz (3.2ns period) to transfer to a 125MHz domain (8ns period)
-(clk_out/clk_in periods of 2.5) with a shift register width of >30 bits.
-Using a double shift register of 56 bits yields two consecutive output cycles every 14 input clocks,
-or 44.8ns; hence two out of every 5.6 cycles.
+(clk_out/clk_in periods of 2.5) with an output width of 16 bits and double shift register, or an
+output width of 32 bits and a single shift register
 
 """
 {
@@ -100,7 +104,11 @@ or 44.8ns; hence two out of every 5.6 cycles.
         if (data_in_state.counter==0) {
             data_in_state.counter <= cycles-1;
             data_in_state.data_out <= data_in_state.shift_register;
-            data_in_state.data_valid_toggle <= !data_in_state.data_valid_toggle;
+            if (data_in_state.not_post_reset) {
+                data_in_state.data_valid_toggle <= !data_in_state.data_valid_toggle;
+            } else {
+                data_in_state.not_post_reset <= 1;
+            }
         }
         if (!valid_in) {
             data_in_state <= data_in_state;
